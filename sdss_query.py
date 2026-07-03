@@ -72,8 +72,15 @@ TILE_TTL_DAYS = 30       # Wie lange ein gecachter Tile als frisch gilt
 # SDSS SkyServer TAP-Endpunkte (primär + Fallback)
 _SDSS_TAP = [
     "https://skyserver.sdss.org/dr17/SkyServerWS/SearchTools/SqlSearch",
-    "https://cas.sdss.org/dr17/en/tools/search/x_sql.aspx",
+    # Hinweis: cas.sdss.org/.../x_sql.aspx wurde von SDSS eingestellt (404) und
+    # ist als Endpunkt entfernt. Wenn der SkyServer nicht erreichbar ist, greift
+    # stattdessen der VizieR-Spiegel (V/154, SDSS DR16) — siehe
+    # _fetch_tile_from_vizier().
 ]
+
+# VizieR-TAP als unabhängiger Spiegel (CDS Straßburg): Katalog V/154 = SDSS DR16.
+# Photometrie identisch zu DR17; es fehlen nur die jüngsten eBOSS-Spektren.
+_VIZIER_TAP = "https://tapvizier.cds.unistra.fr/TAPVizieR/tap/sync"
 
 # Tabellenspalten die wir aus PhotoObj holen
 # objID, ra, dec, r (Petrosian r-Band, am stabilsten), type (3=Galaxie, 6=Stern),
@@ -489,7 +496,18 @@ def _fetch_tile_from_sdss(tile_id: int,
         return []
 
     if had_network_failure:
-        prog(f"[SDSS] Tile {tile_id}: konnte SDSS nicht erreichen "
+        # SkyServer nicht erreichbar (Wartung/Rate-Limit kommt regelmäßig vor) →
+        # unabhängiger Spiegel: VizieR V/154 (SDSS DR16, CDS Straßburg)
+        prog(f"[SDSS] Tile {tile_id}: SkyServer nicht erreichbar – "
+             f"versuche VizieR-Spiegel (SDSS DR16)...")
+        try:
+            objs = _fetch_tile_from_vizier(tile_id, mag_limit, progress_cb)
+            if objs is not None:
+                prog(f"[SDSS] Tile {tile_id}: {len(objs)} Objekte via VizieR (DR16-Spiegel)")
+                return objs
+        except Exception as e:
+            prog(f"[SDSS] Tile {tile_id}: VizieR-Fallback fehlgeschlagen: {str(e)[:200]}")
+        prog(f"[SDSS] Tile {tile_id}: konnte weder SDSS noch VizieR erreichen "
              f"(Verbindungsproblem, nicht zwingend leeres Tile)")
         return None  # Signalisiert: NICHT cachen, war kein echtes "leer"
 
@@ -586,6 +604,81 @@ def _parse_sdss_csv(raw: str, tile_id: int) -> List[Dict]:
                 "spec_class": spec_class,
                 "photoz":     photoz,
                 "photoz_err": photoz_err,
+            })
+        except Exception:
+            continue
+    return objects
+
+
+def _fetch_tile_from_vizier(tile_id: int, mag_limit: float,
+                            progress_cb=None) -> List[Dict]:
+    """
+    Fallback-Quelle: SDSS DR16 aus dem VizieR-Spiegel (Katalog V/154) via TAP.
+    Liefert dieselbe Objektstruktur wie _parse_sdss_csv. Spalten-Mapping:
+      class (3=Galaxie, 6=Stern) ≙ SDSS type · zsp/e_zsp = spektroskopisches z
+      zph/e_zph = Photo-z · spCl = Spektralklasse (GALAXY/QSO/STAR)
+    Kein mode-Filter: die mode-Kodierung in V/154 weicht von SkyServer ab;
+    Duplikate werden ohnehin über obj_id dedupliziert.
+    """
+    ra_c, dec_c = _tile_center(tile_id)
+    r_deg = TILE_DEG * 0.75
+    safe_mag = min(float(mag_limit), 22.5)
+    adql = (
+        f'SELECT TOP {MAX_PER_TILE} objID, RA_ICRS, DE_ICRS, class, '
+        f'umag, gmag, rmag, imag, zmag, zsp, e_zsp, spCl, zph, e_zph '
+        f'FROM "V/154/sdss16" '
+        f'WHERE RA_ICRS BETWEEN {ra_c - r_deg:.6f} AND {ra_c + r_deg:.6f} '
+        f'AND DE_ICRS BETWEEN {dec_c - r_deg:.6f} AND {dec_c + r_deg:.6f} '
+        f'AND rmag BETWEEN 1.0 AND {safe_mag:.2f}'
+    )
+    data = urllib.parse.urlencode({
+        "REQUEST": "doQuery", "LANG": "ADQL", "FORMAT": "csv", "QUERY": adql
+    }).encode("utf-8")
+    req = urllib.request.Request(_VIZIER_TAP, data=data, headers={
+        "User-Agent": _USER_AGENT,
+        "Content-Type": "application/x-www-form-urlencoded",
+    })
+    with urllib.request.urlopen(req, timeout=90) as resp:
+        raw = resp.read().decode("utf-8", errors="replace")
+    if "<html" in raw[:300].lower():
+        raise RuntimeError("VizieR lieferte HTML statt CSV")
+
+    objects = []
+    for row in csv.DictReader(io.StringIO(raw)):
+        try:
+            obj_id = str(row.get("objID", "")).strip()
+            if not obj_id:
+                continue
+            ra_o  = float(row["RA_ICRS"])
+            dec_o = float(row["DE_ICRS"])
+            try: otype = int(str(row.get("class", "")).strip() or "0")
+            except ValueError: otype = 0
+
+            def _f(key, lo=1.0, hi=99.0):
+                v = str(row.get(key, "")).strip()
+                try:
+                    f = float(v)
+                    return f if lo < f < hi else None
+                except ValueError:
+                    return None
+
+            spec_class = (str(row.get("spCl", "")).strip().upper() or None)
+            objects.append({
+                "obj_id":     f"SDSS {obj_id}",
+                "tile_id":    tile_id,
+                "ra":         ra_o,
+                "dec":        dec_o,
+                "mag_r":      _f("rmag"),
+                "mag_u":      _f("umag"),
+                "mag_g":      _f("gmag"),
+                "mag_i":      _f("imag"),
+                "mag_z":      _f("zmag"),
+                "obj_type":   otype,
+                "specz":      _f("zsp", -0.1, 10.0),
+                "specz_err":  _f("e_zsp", -0.1, 10.0),
+                "spec_class": spec_class,
+                "photoz":     _f("zph", -0.1, 10.0),
+                "photoz_err": _f("e_zph", -0.1, 10.0),
             })
         except Exception:
             continue
