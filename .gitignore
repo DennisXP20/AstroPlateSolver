@@ -1,0 +1,29 @@
+# ── Große Daten: werden lokal über den Katalog-Downloader erzeugt ────────────
+catalog.db
+catalog.db-journal
+sdss_cache.db
+sdss_cache.db-journal
+morph_cache.db
+morph_cache.db-journal
+quasars.csv
+pgc.csv
+*.fits
+*.fit
+*.xisf
+
+# ── Laufzeit-Artefakte ────────────────────────────────────────────────────────
+__pycache__/
+*.pyc
+server_errors.log
+*.log
+*.tmp
+
+# ── Lokale Tool-/Editor-Konfiguration ────────────────────────────────────────
+.claude/
+.vscode/
+.idea/
+
+# ── Betriebssystem ────────────────────────────────────────────────────────────
+Thumbs.db
+desktop.ini
+.DS_Store
