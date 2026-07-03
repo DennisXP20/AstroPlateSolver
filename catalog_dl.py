@@ -841,31 +841,33 @@ def download_planetary_nebulae(conn, prog=None):
 
 # ── Arp Peculiar Galaxies ─────────────────────────────────────────────────────
 def download_arp(conn, prog=None):
-    """Arp Peculiar Galaxies (338 Objekte) via SIMBAD TAP."""
+    """Arp Peculiar Galaxies via SIMBAD TAP.
+    Wichtig: SIMBAD fuehrt den Arp-Atlas unter dem Kuerzel 'APG' (Atlas of
+    Peculiar Galaxies) — 'Arp %' liefert 0 Treffer, und otype='PeG' existiert
+    im aktuellen SIMBAD-Schema nicht mehr (HTTP 400)."""
     objs = []
-    for adql in [
-        ("SELECT b.main_id,b.ra,b.dec FROM basic b "
-         "JOIN ident i ON i.oidref=b.oid "
-         "WHERE i.id LIKE 'Arp %' AND b.ra IS NOT NULL"),
-        ("SELECT main_id,ra,dec FROM basic "
-         "WHERE otype='PeG' AND ra IS NOT NULL"),
-    ]:
-        if objs: break
-        try:
-            if prog: prog("    SIMBAD TAP Arp...")
-            raw = _simbad_tap(adql, 90)
-            for row in csv.DictReader(io.StringIO(raw)):
-                try:
-                    nm = str(row.get("main_id","")).strip()
-                    if not nm: continue
-                    ra = float(row["ra"]); dec = float(row["dec"])
-                    objs.append({"id":nm,"catalog":"Arp","ra":ra,"dec":dec,
-                                 "magnitude":None,"type":"galaxy","name":nm,
-                                 "description":f"Arp Peculiare Galaxie {nm}"})
-                except: pass
-            if prog: prog(f"    Arp: {len(objs)}")
-        except Exception as e:
-            if prog: prog(f"    Arp fehlgeschlagen: {e}")
+    try:
+        if prog: prog("    SIMBAD TAP Arp (Kennung 'APG')...")
+        raw = _simbad_tap(
+            "SELECT i.id, b.main_id, b.ra, b.dec FROM basic b "
+            "JOIN ident i ON i.oidref=b.oid "
+            "WHERE i.id LIKE 'APG %' AND b.ra IS NOT NULL", 90)
+        for row in csv.DictReader(io.StringIO(raw)):
+            try:
+                apg = str(row.get("id", "")).strip()        # z.B. "APG 244"
+                nm  = str(row.get("main_id", "")).strip()   # z.B. "NGC 4038"
+                num = apg.replace("APG", "").strip()
+                if not num: continue
+                aid = f"Arp {num}"
+                ra = float(row["ra"]); dec = float(row["dec"])
+                desc = f"Arp Peculiare Galaxie" + (f" ({nm})" if nm and nm != aid else "")
+                objs.append({"id":aid,"catalog":"Arp","ra":ra,"dec":dec,
+                             "magnitude":None,"type":"galaxy","name":aid,
+                             "description":desc})
+            except: pass
+        if prog: prog(f"    Arp: {len(objs)}")
+    except Exception as e:
+        if prog: prog(f"    Arp fehlgeschlagen: {e}")
     if objs: _insert(conn, objs)
     return len(objs)
 
@@ -1090,14 +1092,20 @@ def download_hickson(conn, prog=None):
 
 # ── WDS Doppelsterne ──────────────────────────────────────────────────────────
 def download_wds(conn, prog=None, mag_limit=22.0):
-    """Washington Double Star Catalog via VizieR (Vmag1 <= mag_limit)."""
+    """Washington Double Star Catalog via VizieR TAP.
+    Wichtig: das asu-Interface liefert fuer B/-Kataloge (lebende Datenbanken
+    wie B/wds) grundsaetzlich HTTP 404 — nur TAP funktioniert. Und die
+    Magnitude-Spalten heissen mag1/mag2, nicht Vmag1/Vmag2."""
     objs = []
-    for cat in ["B/wds/wds", "B/wds/wdss"]:
+    for cat in ["B/wds/wds"]:
         if objs: break
         try:
-            if prog: prog(f"    VizieR WDS (mag<={mag_limit})...")
-            raw,host = _asu(cat,["WDS","RAJ2000","DEJ2000","Vmag1","Vmag2"],
-                            "Vmag1",f"..{mag_limit}",max_rows=200000,timeout=40)
+            if prog: prog(f"    VizieR TAP WDS (mag1<={mag_limit})...")
+            adql = (f'SELECT TOP 200000 WDS, RAJ2000, DEJ2000, '
+                    f'mag1 AS Vmag1, mag2 AS Vmag2 FROM "{cat}" '
+                    f'WHERE mag1 <= {float(mag_limit):.1f} AND RAJ2000 IS NOT NULL')
+            raw = _tap("https://tapvizier.cds.unistra.fr/TAPVizieR/tap/sync", adql, 300)
+            host = "tapvizier"
             for row in csv.DictReader(io.StringIO(raw)):
                 try:
                     wid = str(row.get("WDS","")).strip()
@@ -1124,13 +1132,18 @@ def download_wds(conn, prog=None, mag_limit=22.0):
 
 # ── AAVSO VSX Veränderliche ───────────────────────────────────────────────────
 def download_vsx(conn, prog=None, mag_limit=22.0):
-    """AAVSO Variable Star Index via VizieR (max-Helligkeit <= mag_limit)."""
+    """AAVSO Variable Star Index via VizieR TAP.
+    Wichtig: asu-Interface liefert fuer B/-Kataloge 404 — nur TAP funktioniert.
+    VSX hat >2 Mio. Eintraege; Limit auf die hellsten (max<=15) haelt die
+    Datenmenge amateurtauglich und unter dem 200k-Zeilendeckel."""
     objs = []
     try:
-        if prog: prog(f"    VizieR VSX (max<={mag_limit})...")
-        raw,host = _asu("B/vsx/vsx",
-                        ["Name","RAJ2000","DEJ2000","max","min","Period","Type"],
-                        "max",f"..{mag_limit}",max_rows=200000,timeout=40)
+        eff_mag = min(float(mag_limit), 15.0)
+        if prog: prog(f"    VizieR TAP VSX (max<={eff_mag})...")
+        adql = (f'SELECT TOP 200000 Name, RAJ2000, DEJ2000, max, min, Period, Type '
+                f'FROM "B/vsx/vsx" WHERE max <= {eff_mag:.1f} AND RAJ2000 IS NOT NULL')
+        raw = _tap("https://tapvizier.cds.unistra.fr/TAPVizieR/tap/sync", adql, 300)
+        host = "tapvizier"
         for row in csv.DictReader(io.StringIO(raw)):
             try:
                 nm = str(row.get("Name","")).strip()
@@ -1150,6 +1163,84 @@ def download_vsx(conn, prog=None, mag_limit=22.0):
         if prog: prog(f"    VSX ({host}): {len(objs)}")
     except Exception as e:
         if prog: prog(f"    VSX fehlgeschlagen: {e}")
+    if objs: _insert(conn, objs)
+    return len(objs)
+
+
+# ── Pulsare & Magnetare (ATNF) ────────────────────────────────────────────────
+def download_pulsars(conn, prog=None):
+    """ATNF Pulsar Catalogue (B/psr) via VizieR TAP: ~3.500 Pulsare inklusive
+    Magnetare (Type enthaelt 'AXP'). Im Amateurbild unsichtbar (Radio/Roentgen),
+    aber die Position im eigenen Bildfeld zu kennen ist der Reiz — daher wird
+    die Unsichtbarkeit in der Beschreibung explizit gekennzeichnet."""
+    objs = []
+    try:
+        if prog: prog("    VizieR TAP ATNF Pulsare (inkl. Magnetare)...")
+        adql = ('SELECT TOP 10000 PSRJ, RAJ2000, DEJ2000, P0, DM, Dist, Type '
+                'FROM "B/psr/psr" WHERE RAJ2000 IS NOT NULL AND DEJ2000 IS NOT NULL')
+        raw = _tap("https://tapvizier.cds.unistra.fr/TAPVizieR/tap/sync", adql, 180)
+        for row in csv.DictReader(io.StringIO(raw)):
+            try:
+                nm = str(row.get("PSRJ", "")).strip()
+                if not nm: continue
+                ra = float(row["RAJ2000"]); dec = float(row["DEJ2000"])
+                def _g(k):
+                    try: return float(str(row.get(k, "")).strip())
+                    except (ValueError, TypeError): return None
+                p0 = _g("P0"); dm = _g("DM"); dist = _g("Dist")
+                typ = str(row.get("Type", "")).strip().upper()
+                is_mag = "AXP" in typ
+                if is_mag:
+                    desc = "Magnetar (AXP/SGR) — Neutronenstern mit extremem Magnetfeld (~10^14 Gauss)"
+                else:
+                    desc = "Pulsar — rotierender Neutronenstern"
+                if p0 is not None:
+                    desc += (f" · P={p0*1000:.2f} ms" if p0 < 0.1 else f" · P={p0:.4f} s")
+                if dm is not None: desc += f" · DM={dm:.1f} pc/cm³"
+                if dist: desc += f" · Dist≈{dist:.1f} kpc"
+                desc += " · ⚫ im sichtbaren Licht unsichtbar (Radio/Röntgenquelle)"
+                objs.append({"id": f"PSR {nm}", "catalog": "ATNF", "ra": ra, "dec": dec,
+                             "magnitude": None, "type": "pulsar", "name": f"PSR {nm}",
+                             "description": desc})
+            except: pass
+        n_mag = sum(1 for o in objs if "Magnetar" in o["description"])
+        if prog: prog(f"    ATNF: {len(objs)} Pulsare (davon {n_mag} Magnetare)")
+    except Exception as e:
+        if prog: prog(f"    ATNF fehlgeschlagen: {e}")
+    if objs: _insert(conn, objs)
+    return len(objs)
+
+
+# ── Stellare Schwarze Löcher (BlackCAT) ───────────────────────────────────────
+def download_blackholes(conn, prog=None):
+    """BlackCAT (Corral-Santana et al. 2016, A&A 587, A61): Katalog stellarer
+    Schwarzer Loecher in Roentgenbinaersystemen (~60 Transienten). Klein aber
+    fein — die einzigen dynamisch bestaetigten stellaren Schwarzen Loecher."""
+    objs = []
+    try:
+        if prog: prog("    VizieR TAP BlackCAT (stellare Schwarze Löcher)...")
+        adql = ('SELECT Name, Ctp, RAJ2000, DEJ2000, Dist '
+                'FROM "J/A+A/587/A61/tablea1" WHERE RAJ2000 IS NOT NULL')
+        raw = _tap("https://tapvizier.cds.unistra.fr/TAPVizieR/tap/sync", adql, 90)
+        for row in csv.DictReader(io.StringIO(raw)):
+            try:
+                nm = str(row.get("Name", "")).strip()
+                if not nm: continue
+                ra = float(row["RAJ2000"]); dec = float(row["DEJ2000"])
+                ctp = str(row.get("Ctp", "")).strip()
+                try: dist = float(str(row.get("Dist", "")).strip())
+                except (ValueError, TypeError): dist = None
+                desc = "Stellares Schwarzes Loch — Röntgenbinärsystem (BlackCAT)"
+                if ctp: desc += f" · Begleiter: {ctp}"
+                if dist: desc += f" · Dist≈{dist:.1f} kpc"
+                desc += " · ⚫ nur im Röntgenausbruch nachweisbar, optisch unsichtbar"
+                objs.append({"id": nm, "catalog": "BlackCAT", "ra": ra, "dec": dec,
+                             "magnitude": None, "type": "blackhole", "name": nm,
+                             "description": desc})
+            except: pass
+        if prog: prog(f"    BlackCAT: {len(objs)} Schwarze Löcher")
+    except Exception as e:
+        if prog: prog(f"    BlackCAT fehlgeschlagen: {e}")
     if objs: _insert(conn, objs)
     return len(objs)
 
@@ -1297,6 +1388,12 @@ def download_all(conn, prog=None):
     p(">>> Exoplaneten-Wirtssterne...")
     try: n=_retry(lambda: download_exoplanets(conn,p),n=2,delay=4,prog=p); totals["Exoplanet"]=n; p(f"    OK: {n}")
     except Exception as e: p(f"    FEHLER: {e}"); totals["Exoplanet"]=0
+    p(">>> Pulsare & Magnetare (ATNF)...")
+    try: n=_retry(lambda: download_pulsars(conn,p),n=2,delay=4,prog=p); totals["ATNF"]=n; p(f"    OK: {n}")
+    except Exception as e: p(f"    FEHLER: {e}"); totals["ATNF"]=0
+    p(">>> Stellare Schwarze Löcher (BlackCAT)...")
+    try: n=_retry(lambda: download_blackholes(conn,p),n=2,delay=4,prog=p); totals["BlackCAT"]=n; p(f"    OK: {n}")
+    except Exception as e: p(f"    FEHLER: {e}"); totals["BlackCAT"]=0
     ts=time.strftime("%Y-%m-%d %H:%M:%S")
     for name,cnt in totals.items(): conn.execute("INSERT OR REPLACE INTO catalog_meta VALUES (?,?,?)",(name,ts,cnt))
     conn.commit(); total=sum(totals.values()); p(f">>> Fertig: {total:,} Objekte gesamt")

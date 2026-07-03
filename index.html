@@ -700,6 +700,10 @@ body{background:var(--bg);color:var(--tx);font-family:system-ui,-apple-system,sa
             <option value="quasar">Quasar</option>
             <option value="cluster">Cluster</option>
             <option value="variable">Variabel</option>
+            <option value="double">Doppelstern</option>
+            <option value="exoplanet">Exoplanet</option>
+            <option value="pulsar">Pulsar/Magnetar</option>
+            <option value="blackhole">Schwarzes Loch</option>
           </select>
           <label>Katalog</label>
           <select id="f-cat" onchange="applyFilter()"><option value="">Alle</option></select>
@@ -897,17 +901,20 @@ const CATS=[
   {id:'WDS',label:'Doppelsterne',color:'#fef08a',on:true,desc:'Washington Double Star Catalog – Millionen Doppel-/Mehrfachsterne.',src:'VizieR B/wds (US Naval Observatory) via asu-csv'},
   {id:'VSX',label:'Veränderliche',color:'#f0abfc',on:true,desc:'AAVSO-Katalog veränderlicher Sterne (Cepheiden, Novae, Bedeckungsver.).',src:'VizieR B/vsx (AAVSO International VSX) via asu-csv'},
   {id:'Exoplanet',label:'Exoplaneten',color:'#4ade80',on:true,desc:'Wirtssterne bestätigter Exoplaneten mit Planetenanzahl.',src:'NASA Exoplanet Archive TAP (exoplanetarchive.ipac.caltech.edu)'},
+  {id:'ATNF',label:'Pulsare',color:'#22d3ee',on:true,desc:'ATNF Pulsar Catalogue – ~3.500 Pulsare inkl. Magnetare (AXP/SGR). Im sichtbaren Licht unsichtbar (Radio/Röntgen), aber die Position im eigenen Bild zu kennen ist der Reiz.',src:'VizieR B/psr (ATNF, Manchester et al. 2005) via TAP'},
+  {id:'BlackCAT',label:'Schw. Löcher',color:'#c084fc',on:true,desc:'BlackCAT – ~60 stellare Schwarze Löcher in Röntgenbinärsystemen. Die einzigen dynamisch bestätigten stellaren Schwarzen Löcher. Optisch unsichtbar.',src:'VizieR J/A+A/587/A61 (Corral-Santana et al. 2016) via TAP'},
   {id:'SDSS DR17',label:'SDSS DR17',color:'#ff8c42',on:true,desc:'Sloan Digital Sky Survey DR17 – ~500 Mio. Objekte, live abgefragt (Tile-Cache).',src:'SDSS SkyServer SQL (skyserver.sdss.org/dr17), siehe SDSS-Panel'},
 ];
-const TC={galaxy:'#5aabff',star:'#fde047',nebula:'#4ade80',quasar:'#f472b6',cluster:'#fb923c',variable:'#f87171',double:'#fef08a',exoplanet:'#4ade80',unknown:'#94a3b8'};
+const TC={galaxy:'#5aabff',star:'#fde047',nebula:'#4ade80',quasar:'#f472b6',cluster:'#fb923c',variable:'#f87171',double:'#fef08a',exoplanet:'#4ade80',pulsar:'#22d3ee',blackhole:'#c084fc',unknown:'#94a3b8'};
 const TB={
   galaxy:{b:'rgba(90,171,255,.18)',c:'#93c5fd'},star:{b:'rgba(253,224,71,.18)',c:'#fde047'},
   nebula:{b:'rgba(74,222,128,.18)',c:'#86efac'},quasar:{b:'rgba(244,114,182,.18)',c:'#f9a8d4'},
   cluster:{b:'rgba(251,146,60,.18)',c:'#fdba74'},variable:{b:'rgba(248,113,113,.18)',c:'#fca5a5'},
   double:{b:'rgba(254,240,138,.18)',c:'#fef08a'},exoplanet:{b:'rgba(74,222,128,.18)',c:'#86efac'},
+  pulsar:{b:'rgba(34,211,238,.18)',c:'#67e8f9'},blackhole:{b:'rgba(192,132,252,.18)',c:'#d8b4fe'},
   unknown:{b:'rgba(148,163,184,.1)',c:'#94a3b8'},
 };
-const TI={galaxy:'🌌',star:'⭐',nebula:'🌫',quasar:'💫',cluster:'✨',variable:'🔆',double:'⚭',exoplanet:'🪐',unknown:'●'};
+const TI={galaxy:'🌌',star:'⭐',nebula:'🌫',quasar:'💫',cluster:'✨',variable:'🔆',double:'⚭',exoplanet:'🪐',pulsar:'📡',blackhole:'⚫',unknown:'●'};
 
 // ── State ─────────────────────────────────────────────────────────────────────
 let file=null,lastResult=null,astapFound=false;
@@ -4438,8 +4445,11 @@ async function dlUniverse3D() {
     const p = document.createElement('p');
     p.style.cssText = 'margin:1px 0;white-space:pre-wrap;word-break:break-all';
     p.textContent   = txt.replace(/^\[\d+:\d+:\d+\] /, '');
+    // Nur autoscrollen wenn der User ohnehin (fast) unten ist — sonst
+    // reisst es ihn beim Hochscrollen alle paar Sekunden wieder runter
+    const atBottom = logEl.scrollHeight - logEl.scrollTop - logEl.clientHeight < 60;
     logEl.appendChild(p);
-    logEl.scrollTop = logEl.scrollHeight;
+    if(atBottom) logEl.scrollTop = logEl.scrollHeight;
   };
   const poll = setInterval(async () => {
     try {
@@ -6242,11 +6252,11 @@ async function showCatalogDashboard(){
   // Count by type
   const typeCounts={};
   entries.forEach(e=>{typeCounts[e.type]=(typeCounts[e.type]||0)+1;});
-  const typeOrder=['star','galaxy','nebula','cluster','quasar','planetary_nebula','double','variable','supernova_remnant','unknown'];
+  const typeOrder=['star','galaxy','nebula','cluster','quasar','planetary_nebula','double','variable','pulsar','blackhole','supernova_remnant','unknown'];
   const typeLabels={star:'Sterne',galaxy:'Galaxien',nebula:'Nebel',cluster:'Haufen',quasar:'Quasare',
-    planetary_nebula:'Plan. Nebel',double:'Doppelsterne',variable:'Veränderliche',supernova_remnant:'SNR',unknown:'Andere'};
+    planetary_nebula:'Plan. Nebel',double:'Doppelsterne',variable:'Veränderliche',pulsar:'Pulsare',blackhole:'Schw. Löcher',supernova_remnant:'SNR',unknown:'Andere'};
   const typeIcons={star:'⭐',galaxy:'🌀',nebula:'🟣',cluster:'🔵',quasar:'💠',planetary_nebula:'🟢',
-    double:'⭐⭐',variable:'💫',supernova_remnant:'💥',unknown:'●'};
+    double:'⭐⭐',variable:'💫',pulsar:'📡',blackhole:'⚫',supernova_remnant:'💥',unknown:'●'};
 
   // Count by catalog
   const catCounts={};
@@ -6685,8 +6695,15 @@ async function refreshLog(){
   try{
     const d=await(await fetch('/api/status')).json();
     const el=document.getElementById('logel');
-    el.innerHTML=d.log.map(l=>{let cls='';if(l.includes('OK')||l.includes('fertig')||l.includes('Solved'))cls='ok';else if(l.includes('FEHLER')||l.includes('Fehler')||l.includes('Error'))cls='err';else if(l.includes('>>>')||l.includes('==='))cls='info';return`<p class="${cls}">${l}</p>`;}).join('');
-    el.scrollTop=el.scrollHeight;
+    const html=d.log.map(l=>{let cls='';if(l.includes('OK')||l.includes('fertig')||l.includes('Solved'))cls='ok';else if(l.includes('FEHLER')||l.includes('Fehler')||l.includes('Error'))cls='err';else if(l.includes('>>>')||l.includes('==='))cls='info';return`<p class="${cls}">${l}</p>`;}).join('');
+    if(html===refreshLog._last)return; // nichts Neues → Scrollposition nicht anfassen
+    refreshLog._last=html;
+    // Autoscroll nur wenn der User ohnehin (fast) unten ist — sonst reisst es
+    // ihn beim Lesen älterer Zeilen alle 2s wieder nach unten
+    const atBottom=el.scrollHeight-el.scrollTop-el.clientHeight<60;
+    const prevTop=el.scrollTop;
+    el.innerHTML=html;
+    el.scrollTop=atBottom?el.scrollHeight:prevTop;
   }catch(e){}
 }
 async function checkStatus(){
