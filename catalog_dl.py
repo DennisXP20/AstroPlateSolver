@@ -1245,6 +1245,47 @@ def download_blackholes(conn, prog=None):
     return len(objs)
 
 
+# ── Weisse Zwerge (Gaia EDR3) ─────────────────────────────────────────────────
+def download_whitedwarfs(conn, prog=None, mag_limit=20.5):
+    """Gaia-EDR3-Weisse-Zwerge (Gentile Fusillo et al. 2021, J/MNRAS/508/3877):
+    ~359.000 Kandidaten, Filter P_WD >= 0.75 (hohe Konfidenz). Mit Teff, Masse
+    (H-Atmosphaeren-Fit) und geometrischer Distanz (Bailer-Jones rgeo).
+    ADQL-Hinweis: die Spaltennamen dieser Tabelle sind case-sensitiv und
+    muessen gequotet werden — ungequotetes Gmag liefert HTTP 400."""
+    objs = []
+    try:
+        if prog: prog(f"    VizieR TAP Gaia-Weisse-Zwerge (G<={mag_limit})...")
+        adql = (f'SELECT TOP 200000 "EDR3Name", "RA_ICRS", "DE_ICRS", "Gmag", '
+                f'"Pwd", "TeffH", "MassH", "rgeo" FROM "J/MNRAS/508/3877/maincat" '
+                f'WHERE "Pwd" >= 0.75 AND "Gmag" <= {float(mag_limit):.1f}')
+        raw = _tap("https://tapvizier.cds.unistra.fr/TAPVizieR/tap/sync", adql, 300)
+        for row in csv.DictReader(io.StringIO(raw)):
+            try:
+                nm = str(row.get("EDR3Name", "")).strip()
+                if not nm: continue
+                nm = "WD " + nm.replace("Gaia EDR3 ", "Gaia ")
+                ra = float(row["RA_ICRS"]); dec = float(row["DE_ICRS"])
+                def _g(k):
+                    try: return float(str(row.get(k, "")).strip())
+                    except (ValueError, TypeError): return None
+                g = _g("Gmag"); pwd = _g("Pwd"); teff = _g("TeffH")
+                mass = _g("MassH"); dist = _g("rgeo")
+                desc = "Weisser Zwerg (Gaia EDR3, Gentile Fusillo+ 2021)"
+                if pwd is not None: desc += f" · P_WD={pwd:.2f}"
+                if teff: desc += f" · Teff≈{teff:.0f} K"
+                if mass: desc += f" · M≈{mass:.2f} M☉"
+                if dist: desc += f" · {dist:.0f} pc"
+                objs.append({"id": nm, "catalog": "GaiaWD", "ra": ra, "dec": dec,
+                             "magnitude": g, "type": "whitedwarf", "name": nm,
+                             "description": desc})
+            except: pass
+        if prog: prog(f"    Weisse Zwerge: {len(objs)}")
+    except Exception as e:
+        if prog: prog(f"    Weisse Zwerge fehlgeschlagen: {e}")
+    if objs: _insert(conn, objs)
+    return len(objs)
+
+
 # ── Exoplaneten-Wirtssterne ───────────────────────────────────────────────────
 def download_exoplanets(conn, prog=None):
     """Exoplaneten-Wirtssterne via NASA Exoplanet Archive TAP."""
@@ -1394,6 +1435,9 @@ def download_all(conn, prog=None):
     p(">>> Stellare Schwarze Löcher (BlackCAT)...")
     try: n=_retry(lambda: download_blackholes(conn,p),n=2,delay=4,prog=p); totals["BlackCAT"]=n; p(f"    OK: {n}")
     except Exception as e: p(f"    FEHLER: {e}"); totals["BlackCAT"]=0
+    p(">>> Weisse Zwerge (Gaia EDR3)...")
+    try: n=_retry(lambda: download_whitedwarfs(conn,p),n=2,delay=4,prog=p); totals["GaiaWD"]=n; p(f"    OK: {n}")
+    except Exception as e: p(f"    FEHLER: {e}"); totals["GaiaWD"]=0
     ts=time.strftime("%Y-%m-%d %H:%M:%S")
     for name,cnt in totals.items(): conn.execute("INSERT OR REPLACE INTO catalog_meta VALUES (?,?,?)",(name,ts,cnt))
     conn.commit(); total=sum(totals.values()); p(f">>> Fertig: {total:,} Objekte gesamt")

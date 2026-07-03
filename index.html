@@ -556,6 +556,7 @@ body{background:var(--bg);color:var(--tx);font-family:system-ui,-apple-system,sa
         <div class="tb-group">
           <button class="tbtn" id="tb-skybot" onclick="toggleSkybot()" title="☄ Asteroiden suchen (SkyBot/IMCCE)" style="font-size:16px">☄</button>
           <button class="tbtn" id="tb-catalog" onclick="showCatalogDashboard()" title="Mein Katalog – alle gelösten Objekte" style="font-size:14px">📊</button>
+          <button class="tbtn" onclick="runScienceSelfTest()" title="Wissenschafts-Selbsttest – prüft Kosmologie, Koordinaten & Statistik gegen Literaturwerte" style="font-size:14px">🧪</button>
         </div>
       </div>
 
@@ -704,6 +705,7 @@ body{background:var(--bg);color:var(--tx);font-family:system-ui,-apple-system,sa
             <option value="exoplanet">Exoplanet</option>
             <option value="pulsar">Pulsar/Magnetar</option>
             <option value="blackhole">Schwarzes Loch</option>
+            <option value="whitedwarf">Weißer Zwerg</option>
           </select>
           <label>Katalog</label>
           <select id="f-cat" onchange="applyFilter()"><option value="">Alle</option></select>
@@ -903,18 +905,20 @@ const CATS=[
   {id:'Exoplanet',label:'Exoplaneten',color:'#4ade80',on:true,desc:'Wirtssterne bestätigter Exoplaneten mit Planetenanzahl.',src:'NASA Exoplanet Archive TAP (exoplanetarchive.ipac.caltech.edu)'},
   {id:'ATNF',label:'Pulsare',color:'#22d3ee',on:true,desc:'ATNF Pulsar Catalogue – ~3.500 Pulsare inkl. Magnetare (AXP/SGR). Im sichtbaren Licht unsichtbar (Radio/Röntgen), aber die Position im eigenen Bild zu kennen ist der Reiz.',src:'VizieR B/psr (ATNF, Manchester et al. 2005) via TAP'},
   {id:'BlackCAT',label:'Schw. Löcher',color:'#c084fc',on:true,desc:'BlackCAT – ~60 stellare Schwarze Löcher in Röntgenbinärsystemen. Die einzigen dynamisch bestätigten stellaren Schwarzen Löcher. Optisch unsichtbar.',src:'VizieR J/A+A/587/A61 (Corral-Santana et al. 2016) via TAP'},
+  {id:'GaiaWD',label:'Weiße Zwerge',color:'#e0f2fe',on:true,desc:'Gaia-EDR3-Weiße-Zwerge – bis zu 200.000 hochkonfidente Kandidaten (P_WD≥0.75) mit Temperatur, Masse und Distanz. Endstadien sonnenähnlicher Sterne.',src:'VizieR J/MNRAS/508/3877 (Gentile Fusillo et al. 2021) via TAP'},
   {id:'SDSS DR17',label:'SDSS DR17',color:'#ff8c42',on:true,desc:'Sloan Digital Sky Survey DR17 – ~500 Mio. Objekte, live abgefragt (Tile-Cache).',src:'SDSS SkyServer SQL (skyserver.sdss.org/dr17), siehe SDSS-Panel'},
 ];
-const TC={galaxy:'#5aabff',star:'#fde047',nebula:'#4ade80',quasar:'#f472b6',cluster:'#fb923c',variable:'#f87171',double:'#fef08a',exoplanet:'#4ade80',pulsar:'#22d3ee',blackhole:'#c084fc',unknown:'#94a3b8'};
+const TC={galaxy:'#5aabff',star:'#fde047',nebula:'#4ade80',quasar:'#f472b6',cluster:'#fb923c',variable:'#f87171',double:'#fef08a',exoplanet:'#4ade80',pulsar:'#22d3ee',blackhole:'#c084fc',whitedwarf:'#e0f2fe',unknown:'#94a3b8'};
 const TB={
   galaxy:{b:'rgba(90,171,255,.18)',c:'#93c5fd'},star:{b:'rgba(253,224,71,.18)',c:'#fde047'},
   nebula:{b:'rgba(74,222,128,.18)',c:'#86efac'},quasar:{b:'rgba(244,114,182,.18)',c:'#f9a8d4'},
   cluster:{b:'rgba(251,146,60,.18)',c:'#fdba74'},variable:{b:'rgba(248,113,113,.18)',c:'#fca5a5'},
   double:{b:'rgba(254,240,138,.18)',c:'#fef08a'},exoplanet:{b:'rgba(74,222,128,.18)',c:'#86efac'},
   pulsar:{b:'rgba(34,211,238,.18)',c:'#67e8f9'},blackhole:{b:'rgba(192,132,252,.18)',c:'#d8b4fe'},
+  whitedwarf:{b:'rgba(224,242,254,.15)',c:'#e0f2fe'},
   unknown:{b:'rgba(148,163,184,.1)',c:'#94a3b8'},
 };
-const TI={galaxy:'🌌',star:'⭐',nebula:'🌫',quasar:'💫',cluster:'✨',variable:'🔆',double:'⚭',exoplanet:'🪐',pulsar:'📡',blackhole:'⚫',unknown:'●'};
+const TI={galaxy:'🌌',star:'⭐',nebula:'🌫',quasar:'💫',cluster:'✨',variable:'🔆',double:'⚭',exoplanet:'🪐',pulsar:'📡',blackhole:'⚫',whitedwarf:'⚪',unknown:'●'};
 
 // ── State ─────────────────────────────────────────────────────────────────────
 let file=null,lastResult=null,astapFound=false;
@@ -6252,11 +6256,11 @@ async function showCatalogDashboard(){
   // Count by type
   const typeCounts={};
   entries.forEach(e=>{typeCounts[e.type]=(typeCounts[e.type]||0)+1;});
-  const typeOrder=['star','galaxy','nebula','cluster','quasar','planetary_nebula','double','variable','pulsar','blackhole','supernova_remnant','unknown'];
+  const typeOrder=['star','galaxy','nebula','cluster','quasar','planetary_nebula','double','variable','pulsar','blackhole','whitedwarf','supernova_remnant','unknown'];
   const typeLabels={star:'Sterne',galaxy:'Galaxien',nebula:'Nebel',cluster:'Haufen',quasar:'Quasare',
-    planetary_nebula:'Plan. Nebel',double:'Doppelsterne',variable:'Veränderliche',pulsar:'Pulsare',blackhole:'Schw. Löcher',supernova_remnant:'SNR',unknown:'Andere'};
+    planetary_nebula:'Plan. Nebel',double:'Doppelsterne',variable:'Veränderliche',pulsar:'Pulsare',blackhole:'Schw. Löcher',whitedwarf:'Weiße Zwerge',supernova_remnant:'SNR',unknown:'Andere'};
   const typeIcons={star:'⭐',galaxy:'🌀',nebula:'🟣',cluster:'🔵',quasar:'💠',planetary_nebula:'🟢',
-    double:'⭐⭐',variable:'💫',pulsar:'📡',blackhole:'⚫',supernova_remnant:'💥',unknown:'●'};
+    double:'⭐⭐',variable:'💫',pulsar:'📡',blackhole:'⚫',whitedwarf:'⚪',supernova_remnant:'💥',unknown:'●'};
 
   // Count by catalog
   const catCounts={};
@@ -7649,6 +7653,106 @@ function showPhotoZPanel(results){
     </tr>`).join('')}
   </table>`;
   document.body.appendChild(ov);
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Wissenschafts-Selbsttest: prüft die Kernberechnungen gegen Literaturwerte.
+// Logik: (1) Eine unabhängige Referenz-Kosmologie wird gegen externe Anker
+// (Planck 2018, CosmoCalc) validiert. (2) Der echte App-Code (renderStats,
+// _gal, pixToSky) wird gegen diese validierte Referenz geprüft.
+// ══════════════════════════════════════════════════════════════════════════════
+function runScienceSelfTest(){
+  const results=[];
+  const add=(name,got,expect,pass)=>results.push({name,got,expect,pass});
+
+  // Referenz-Kosmologie (Simpson, N=2000) — unabhängig vom App-Code
+  const H0=67.4,Om=0.315,OL=0.685,C=299792.458;
+  const TH=977.792/H0; // Hubble-Zeit in Gyr (1/H0 in Gyr bei km/s/Mpc)
+  function refCosmo(z){
+    const n=2000,dz=z/n;let dc=0,tl=0;
+    for(let i=0;i<=n;i++){const w=(i===0||i===n)?1:(i%2?4:2),zi=i*dz,e=Math.sqrt(Om*(1+zi)**3+OL);dc+=w/e;tl+=w/((1+zi)*e);}
+    return{dc:(C/H0)*dc*dz/3,tlb:TH*tl*dz/3};
+  }
+
+  // 1) Numerik: Simpson gegen analytisches Integral ∫₀¹3x²dx=1
+  {let s=0;const n=200,dx=1/n;for(let i=0;i<=n;i++){const w=(i===0||i===n)?1:(i%2?4:2);s+=w*3*(i*dx)**2;}s*=dx/3;
+   add('Simpson-Integrator (∫3x²=1)',s.toFixed(6),'1.000000',Math.abs(s-1)<1e-6);}
+
+  // 2) Hubble-Zeit (extern: 1/H₀ = 14.51 Gyr für H₀=67.4)
+  add('Hubble-Zeit 1/H₀',TH.toFixed(2)+' Gyr','14.51 Gyr',Math.abs(TH-14.51)<0.03);
+
+  // 3–5) Referenz-Kosmologie gegen Literaturwerte (CosmoCalc/Planck 2018)
+  const c1=refCosmo(1.0);
+  add('Komovingdistanz D_C(z=1)',c1.dc.toFixed(0)+' Mpc','3350–3430 Mpc',c1.dc>3350&&c1.dc<3430);
+  add('Lookback-Zeit t_L(z=1)',c1.tlb.toFixed(2)+' Gyr','7.80–8.05 Gyr',c1.tlb>7.8&&c1.tlb<8.05);
+  const age=refCosmo(1088).tlb;
+  add('Weltalter (z→1088)',age.toFixed(2)+' Gyr','13.70–13.90 Gyr',age>13.7&&age<13.9);
+
+  // 6) Galaktische Koordinaten (App-Code _gal) gegen bekannte Objekte
+  {const m31=_gal(10.6847,41.2687);
+   add('_gal: M31 (l,b)',m31.l.toFixed(2)+', '+m31.b.toFixed(2),'121.17, −21.57',
+       Math.abs(m31.l-121.17)<0.1&&Math.abs(m31.b+21.57)<0.1);
+   const sgr=_gal(266.4168,-29.0078);
+   add('_gal: Sgr A* (l,b)',sgr.l.toFixed(2)+', '+sgr.b.toFixed(2),'≈359.94, ≈−0.05',
+       (Math.abs(sgr.l-359.944)<0.1||Math.abs(sgr.l-(-0.056))<0.1)&&Math.abs(sgr.b+0.046)<0.1);}
+
+  // 7) Pixel↔Himmel-Fit (App-Code) — Roundtrip auf gespiegeltem Test-WCS
+  {const objs=[];let seed=42;const rnd=()=>{seed=(seed*1103515245+12345)%2147483648;return seed/2147483648;};
+   const s=1.2/3600,rot=10*Math.PI/180,cosd=Math.cos(47.2*Math.PI/180);
+   for(let i=0;i<60;i++){const x=rnd()*4000,y=rnd()*3000,dx=x-2000,dy=y-1500;
+     const xi=(-dx*Math.cos(rot)+dy*Math.sin(rot))*s,eta=(dx*Math.sin(rot)+dy*Math.cos(rot))*s;
+     objs.push({x,y,ra:202.5+xi/cosd,dec:47.2+eta});}
+   const d={objects:objs,field_center:{ra_deg:202.5,dec_deg:47.2},scale_arcsec_per_px:1.2,image_size_px:{w:4000,h:3000}};
+   const sky=pixToSky(d,objs[7].x,objs[7].y);
+   const err=Math.hypot((sky.ra-objs[7].ra)*3600*cosd,(sky.dec-objs[7].dec)*3600);
+   add('pixToSky-Roundtrip (gespiegeltes WCS)',err.toFixed(4)+'″','< 0.5″',err<0.5);}
+
+  // 8) Echter Render-Pfad: synthetisches Feld → angezeigte Werte prüfen
+  {const objs=[];let seed=7;const rnd=()=>{seed=(seed*1103515245+12345)%2147483648;return seed/2147483648;};
+   for(let i=0;i<300;i++){
+     const t=i%2?'galaxy':'star';
+     const o={id:'ST'+i,type:t,catalog:t==='galaxy'?'SDSS DR17':'Gaia DR3',
+       x:rnd()*4000,y:rnd()*3000,ra:202+rnd(),dec:47+rnd(),magnitude:(14+rnd()*6).toFixed(2)};
+     if(t==='galaxy')o.redshift_z='0.5';
+     objs.push(o);}
+   const fake={objects:objs,image_size_px:{w:4000,h:3000},field_size_arcmin:{w:80,h:60},
+     scale_arcsec_per_px:1.2,wcs_source:'selftest',stars_found:0,
+     field_center:{ra:'t',dec:'t'},wcs_info:{ra_center:202.5,dec_center:47.5}};
+   let txt='';
+   try{renderStats(fake);txt=document.getElementById('statsp').innerText;}catch(e){txt='FEHLER '+e.message;}
+   // Lichtalter aller z=0.5-Galaxien muss der Referenz entsprechen
+   const ref05=refCosmo(0.5).tlb;
+   const mLB=txt.match(/Ø Lichtalter: ([\d.]+)/);
+   const lbApp=mLB?parseFloat(mLB[1]):NaN;
+   add('App-Kosmologie: Lichtalter(z=0.5)',isNaN(lbApp)?'—':lbApp.toFixed(2)+' Gyr',ref05.toFixed(2)+' Gyr (Referenz)',Math.abs(lbApp-ref05)<0.1);
+   // Clark-Evans auf Zufallsfeld muss ≈1 sein
+   const mCE=txt.match(/Clark-Evans R\s*\n?\s*([\d.]+)/);
+   const ce=mCE?parseFloat(mCE[1]):NaN;
+   add('App-Statistik: Clark-Evans (Zufallsfeld)',isNaN(ce)?'—':ce.toFixed(3),'0.90–1.10 (Poisson)',ce>0.9&&ce<1.1);
+   // Stats wiederherstellen
+   try{if(lastResult)renderStats(lastResult);else document.getElementById('statsp').innerHTML='';}catch(e){}}
+
+  // 9) Koordinaten-Formatierung
+  add('fmtRa(180°)',fmtRa(180),'12h 00m …',/12h/.test(fmtRa(180)));
+
+  // Panel rendern
+  const nOk=results.filter(r=>r.pass).length;
+  let ov=document.getElementById('selftest-panel');if(ov)ov.remove();
+  ov=document.createElement('div');ov.id='selftest-panel';
+  ov.style.cssText='position:fixed;top:60px;left:50%;transform:translateX(-50%);width:620px;max-width:calc(100vw - 40px);max-height:calc(100vh - 100px);overflow:auto;background:var(--bg2);border:1px solid var(--b2);border-radius:12px;padding:18px;z-index:99999;box-shadow:0 8px 32px rgba(0,0,0,.8)';
+  ov.innerHTML=`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+    <span style="font-size:14px;font-weight:700;color:var(--tx)">🧪 Wissenschafts-Selbsttest</span>
+    <button onclick="this.closest('#selftest-panel').remove()" style="background:none;border:none;color:var(--mu);cursor:pointer;font-size:18px">✕</button></div>
+  <div style="font-size:10px;color:var(--mu);margin-bottom:12px;line-height:1.5">Prüft die Kernberechnungen gegen externe Referenzwerte (Planck 2018, Ned Wrights CosmoCalc, SIMBAD-Koordinaten) und den echten Render-Pfad gegen eine unabhängig validierte Referenz-Implementierung.</div>
+  <div style="font-size:13px;font-weight:700;margin-bottom:10px;color:${nOk===results.length?'#4ade80':'#f87171'}">${nOk} / ${results.length} Tests bestanden</div>
+  ${results.map(r=>`<div style="display:flex;gap:8px;align-items:baseline;padding:5px 0;border-bottom:1px solid rgba(255,255,255,.05);font-size:11px">
+    <span style="color:${r.pass?'#4ade80':'#f87171'};min-width:16px">${r.pass?'✓':'✗'}</span>
+    <span style="color:var(--tx);flex:1">${r.name}</span>
+    <span style="color:${r.pass?'var(--mu)':'#f87171'}">${r.got}</span>
+    <span style="color:var(--fa)">soll: ${r.expect}</span>
+  </div>`).join('')}`;
+  document.body.appendChild(ov);
+  toast(`Selbsttest: ${nOk}/${results.length} bestanden`,nOk===results.length);
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
