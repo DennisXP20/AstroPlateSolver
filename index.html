@@ -1026,6 +1026,7 @@ function loadFile(f){
   if(!f)return;
   if(f.size>4*1024*1024*1024){toast('Max 4 GB');return}
   file=f;
+  lastImageB64=''; // altes Übersichtsbild verwerfen (wird beim Solve neu erzeugt)
   const img=document.getElementById('ti');
   img.onload=()=>{
     imgNatW=img.naturalWidth;imgNatH=img.naturalHeight;
@@ -6596,8 +6597,20 @@ async function solve(useAstap){
     } else {
       solveBlob = file;
     }
-    // b64 nur noch für Overlay/Modal (nicht für Upload)
-    if (!lastImageB64) { lastImageB64 = await toB64(file); }
+    // Übersichts-JPEG für Word-Export aus dem ANGEZEIGTEN Bild erzeugen —
+    // FileReader.readAsDataURL auf GB-TIFFs sprengt das Browser-String-Limit
+    // ("Lesefehler") und die Rohdatei wäre eh nicht browserlesbar.
+    if (!lastImageB64) {
+      try {
+        const ti = document.getElementById('ti');
+        const s = Math.min(1, 4000 / Math.max(ti.naturalWidth, ti.naturalHeight, 1));
+        const cv2 = document.createElement('canvas');
+        cv2.width  = Math.max(1, Math.round(ti.naturalWidth * s));
+        cv2.height = Math.max(1, Math.round(ti.naturalHeight * s));
+        cv2.getContext('2d').drawImage(ti, 0, 0, cv2.width, cv2.height);
+        lastImageB64 = cv2.toDataURL('image/jpeg', 0.85).split(',')[1];
+      } catch(e) { lastImageB64 = ''; console.warn('Übersichtsbild fehlgeschlagen:', e); }
+    }
   } catch(e) { toast('Bild-Fehler: '+e.message); resetBtns(); return; }
 
   setPg(18);
@@ -7831,16 +7844,22 @@ async function showCMD(){
   const radius=Math.sqrt(fw*fw+fh*fh)/2*1.1;
   if(!radius)return toast('WCS-Info unvollständig',false);
 
-  toast('Lade Gaia DR3 Sterne mit BP/RP + Parallaxe …',true);
+  // Gaia-Abfrage pro Solve cachen — beim erneuten Öffnen des HRD nicht neu laden
   let gaiaStars;
-  try{
-    const resp=await fetch('/api/gaia_cone',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({ra:ra_c, dec:dec_c, radius:Math.min(radius,2.0), mag_limit:18})});
-    const d=await resp.json();
-    if(d.error)return toast('Gaia-Fehler: '+d.error,false);
-    gaiaStars=d.stars||[];
-    toast(`${gaiaStars.length} Gaia-Sterne geladen`,true);
-  }catch(e){return toast('Gaia-Abfrage fehlgeschlagen: '+e.message,false);}
+  if(lastResult._gaiaHRD){
+    gaiaStars=lastResult._gaiaHRD;
+  }else{
+    toast('Lade Gaia DR3 Sterne mit BP/RP + Parallaxe …',true);
+    try{
+      const resp=await fetch('/api/gaia_cone',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({ra:ra_c, dec:dec_c, radius:Math.min(radius,2.0), mag_limit:18})});
+      const d=await resp.json();
+      if(d.error)return toast('Gaia-Fehler: '+d.error,false);
+      gaiaStars=d.stars||[];
+      lastResult._gaiaHRD=gaiaStars;
+      toast(`${gaiaStars.length} Gaia-Sterne geladen`,true);
+    }catch(e){return toast('Gaia-Abfrage fehlgeschlagen: '+e.message,false);}
+  }
 
   const objs=gaiaStars.filter(s=>s.parallax_mas&&s.parallax_mas>0.5&&s.M_abs!=null);
   if(objs.length<3)return toast('Zu wenige Gaia-Sterne mit Parallaxe > 0.5 mas ('+objs.length+')',false);
@@ -7892,16 +7911,31 @@ async function showCMD(){
     return{sp:'M',col:'#ffcc6f'};
   }
 
-  // Luminosity class
+  // Empirische Gaia-Hauptreihe: M_G als Funktion von BP−RP (Anker aus dem
+  // Gaia-CMD; Sonne: BP−RP=0.82, M_G=4.7 ✓). Leuchtkraftklasse = Abstand zur
+  // Hauptreihe, NICHT absolute Helligkeit allein — sonst wird ein heller
+  // A-Hauptreihenstern zum "Riesen" und ein Roter Zwerg zum "Weißen Zwerg".
+  const MS_ANCHORS=[[-0.3,-1.5],[0.0,0.8],[0.3,2.0],[0.5,3.2],[0.82,4.8],[1.0,5.8],[1.5,7.6],[2.0,9.5],[2.5,11.5],[3.0,13.5],[3.5,15.0]];
+  function msM(ci){
+    if(ci<=MS_ANCHORS[0][0])return MS_ANCHORS[0][1];
+    for(let i=1;i<MS_ANCHORS.length;i++){
+      if(ci<=MS_ANCHORS[i][0]){
+        const f=(ci-MS_ANCHORS[i-1][0])/(MS_ANCHORS[i][0]-MS_ANCHORS[i-1][0]);
+        return MS_ANCHORS[i-1][1]+f*(MS_ANCHORS[i][1]-MS_ANCHORS[i-1][1]);
+      }
+    }
+    return MS_ANCHORS[MS_ANCHORS.length-1][1];
+  }
   function lumClass(M,ci){
-    if(M<-2)return'Überriese';
-    if(M<1)return'Riese';
-    if(ci!=null&&ci>0.5&&M>10)return'Weißer Zwerg';
-    if(M>6)return'Unterzwerg';
+    const d=M-msM(ci); // >0 = leuchtschwächer als die Hauptreihe
+    if(d>3.5&&ci<1.3)return'Weißer Zwerg';   // weit UNTER der Hauptreihe und blau/neutral
+    if(d<-7.5)return'Überriese';
+    if(d<-2.2)return'Riese';
+    if(d>2.2)return'Unterzwerg';
     return'Hauptreihe';
   }
 
-  const W=660,H=480,pad={t:40,r:30,b:50,l:60};
+  const W=660,H=480,pad={t:60,r:30,b:50,l:60};
   const pw=W-pad.l-pad.r, ph=H-pad.t-pad.b;
   const ciMin=Math.min(-0.5,...stars.map(s=>s.ci))-0.2;
   const ciMax=Math.max(3.0,...stars.map(s=>s.ci))+0.2;
@@ -7922,8 +7956,8 @@ async function showCMD(){
     svg+=`<line x1="${x}" y1="${pad.t}" x2="${x}" y2="${H-pad.b}" stroke="#222" stroke-width="0.5"/>`;
     svg+=`<text x="${x}" y="${H-pad.b+16}" fill="#666" font-size="10" text-anchor="middle">${c.toFixed(1)}</text>`;
   }
-  // MS reference band
-  const msPoints=[[-.3,-4],[0,-1],[.3,1],[.6,3],[.8,4.5],[1.0,6],[1.5,8],[2.0,10],[2.5,12],[3.0,14]];
+  // MS reference band — dieselben empirischen Anker wie die Klassifikation
+  const msPoints=MS_ANCHORS;
   let msPath='';msPoints.forEach((p,i)=>{msPath+=(i?'L':'M')+sx(p[0])+','+sy(p[1]);});
   svg+=`<path d="${msPath}" fill="none" stroke="rgba(100,180,255,0.15)" stroke-width="30"/>`;
   svg+=`<path d="${msPath}" fill="none" stroke="rgba(100,180,255,0.3)" stroke-width="1" stroke-dasharray="4,3"/>`;
@@ -7952,16 +7986,18 @@ ${s.teff?'Teff='+Math.round(s.teff)+'K · ':''}Dist=${Math.round(s.dist)} pc
   // Axes labels
   svg+=`<text x="${W/2}" y="${H-5}" fill="#aaa" font-size="12" text-anchor="middle">Farbindex (BP−RP)</text>`;
   svg+=`<text x="14" y="${H/2}" fill="#aaa" font-size="12" text-anchor="middle" transform="rotate(-90,14,${H/2})">Absolute Helligkeit M</text>`;
-  svg+=`<text x="${W/2}" y="18" fill="#ddd" font-size="13" font-weight="bold" text-anchor="middle">Hertzsprung-Russell-Diagramm</text>`;
-  svg+=`<text x="${W/2}" y="32" fill="#888" font-size="10" text-anchor="middle">${stars.length} Sterne · Gaia DR3 (BP/RP + Parallaxe, Online-Abfrage)</text>`;
+  svg+=`<text x="${W/2}" y="16" fill="#888" font-size="10" text-anchor="middle">${stars.length} Sterne · Gaia DR3 (BP/RP + Parallaxe, Online-Abfrage)</text>`;
 
-  // Spectral type color bar
-  const spBands=[{l:'O',c:'#9bb0ff',x:0},{l:'B',c:'#aabfff',x:.1},{l:'A',c:'#cad7ff',x:.2},
-    {l:'F',c:'#f8f7ff',x:.35},{l:'G',c:'#fff4ea',x:.5},{l:'K',c:'#ffd2a1',x:.7},{l:'M',c:'#ffcc6f',x:.9}];
-  spBands.forEach(b=>{
-    const x=pad.l+b.x*pw;
-    svg+=`<rect x="${x}" y="${pad.t-8}" width="${pw*0.12}" height="4" fill="${b.c}" opacity="0.6" rx="2"/>`;
-    svg+=`<text x="${x+pw*0.06}" y="${pad.t-10}" fill="${b.c}" font-size="8" text-anchor="middle">${b.l}</text>`;
+  // Spektraltyp-Leiste — an die ECHTE BP−RP-Achse gekoppelt (nicht dekorativ
+  // gleichverteilt), damit ein Stern optisch unter seinem eigenen Typ liegt
+  const spBands=[['O',-9,-0.25,'#9bb0ff'],['B',-0.25,0.05,'#aabfff'],['A',0.05,0.35,'#cad7ff'],
+    ['F',0.35,0.6,'#f8f7ff'],['G',0.6,0.9,'#fff4ea'],['K',0.9,1.5,'#ffd2a1'],['M',1.5,9,'#ffcc6f']];
+  spBands.forEach(([l,c0,c1,col])=>{
+    const x0=Math.max(pad.l,sx(Math.max(c0,ciMin)));
+    const x1=Math.min(W-pad.r,sx(Math.min(c1,ciMax)));
+    if(x1-x0<8)return;
+    svg+=`<rect x="${x0}" y="${pad.t-14}" width="${x1-x0}" height="4" fill="${col}" opacity="0.6" rx="2"/>`;
+    svg+=`<text x="${(x0+x1)/2}" y="${pad.t-18}" fill="${col}" font-size="9" text-anchor="middle">${l}</text>`;
   });
   svg+=`</svg>`;
 
