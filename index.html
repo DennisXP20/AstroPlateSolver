@@ -711,6 +711,7 @@ body{background:var(--bg);color:var(--tx);font-family:system-ui,-apple-system,sa
             <option value="pulsar">Pulsar/Magnetar</option>
             <option value="blackhole">Schwarzes Loch</option>
             <option value="whitedwarf">Weißer Zwerg</option>
+            <option value="globular">Kugelsternhaufen (extragal.)</option>
           </select>
           <label>Katalog</label>
           <select id="f-cat" onchange="applyFilter()"><option value="">Alle</option></select>
@@ -914,17 +915,17 @@ const CATS=[
   {id:'ExtGC',label:'GC extern',color:'#fdba74',on:true,desc:'Kugelsternhaufen NAHER GALAXIEN – M31 (hellster: G1, V=13.7!), M81/M82-Triplett, M104 Sombrero, Cen A, M33. Die entferntesten Sternhaufen, die ein Amateur einzeln nachweisen kann.',src:'VizieR: RBC V3.5, J-PLUS (Chies-Santos+ 2022), Spitler+ 2008 u.a. via TAP'},
   {id:'SDSS DR17',label:'SDSS DR17',color:'#ff8c42',on:true,desc:'Sloan Digital Sky Survey DR17 – ~500 Mio. Objekte, live abgefragt (Tile-Cache).',src:'SDSS SkyServer SQL (skyserver.sdss.org/dr17), siehe SDSS-Panel'},
 ];
-const TC={galaxy:'#5aabff',star:'#fde047',nebula:'#4ade80',quasar:'#f472b6',cluster:'#fb923c',variable:'#f87171',double:'#fef08a',exoplanet:'#4ade80',pulsar:'#22d3ee',blackhole:'#c084fc',whitedwarf:'#e0f2fe',unknown:'#94a3b8'};
+const TC={galaxy:'#5aabff',star:'#fde047',nebula:'#4ade80',quasar:'#f472b6',cluster:'#fb923c',variable:'#f87171',double:'#fef08a',exoplanet:'#4ade80',pulsar:'#22d3ee',blackhole:'#c084fc',whitedwarf:'#e0f2fe',globular:'#2dd4bf',unknown:'#94a3b8'};
 const TB={
   galaxy:{b:'rgba(90,171,255,.18)',c:'#93c5fd'},star:{b:'rgba(253,224,71,.18)',c:'#fde047'},
   nebula:{b:'rgba(74,222,128,.18)',c:'#86efac'},quasar:{b:'rgba(244,114,182,.18)',c:'#f9a8d4'},
   cluster:{b:'rgba(251,146,60,.18)',c:'#fdba74'},variable:{b:'rgba(248,113,113,.18)',c:'#fca5a5'},
   double:{b:'rgba(254,240,138,.18)',c:'#fef08a'},exoplanet:{b:'rgba(74,222,128,.18)',c:'#86efac'},
   pulsar:{b:'rgba(34,211,238,.18)',c:'#67e8f9'},blackhole:{b:'rgba(192,132,252,.18)',c:'#d8b4fe'},
-  whitedwarf:{b:'rgba(224,242,254,.15)',c:'#e0f2fe'},
+  whitedwarf:{b:'rgba(224,242,254,.15)',c:'#e0f2fe'},globular:{b:'rgba(45,212,191,.18)',c:'#5eead4'},
   unknown:{b:'rgba(148,163,184,.1)',c:'#94a3b8'},
 };
-const TI={galaxy:'🌌',star:'⭐',nebula:'🌫',quasar:'💫',cluster:'✨',variable:'🔆',double:'⚭',exoplanet:'🪐',pulsar:'📡',blackhole:'⚫',whitedwarf:'⚪',unknown:'●'};
+const TI={galaxy:'🌌',star:'⭐',nebula:'🌫',quasar:'💫',cluster:'✨',variable:'🔆',double:'⚭',exoplanet:'🪐',pulsar:'📡',blackhole:'⚫',whitedwarf:'⚪',globular:'✪',unknown:'●'};
 
 // ── State ─────────────────────────────────────────────────────────────────────
 let file=null,lastResult=null,astapFound=false;
@@ -1558,8 +1559,10 @@ function openModal(o){
   const isExtragal=['galaxy','quasar'].includes(o.type);
   const isStar=['star','variable','double'].includes(o.type);
   const isCluster=o.type==='cluster';
-  const skyFov=isStar?'0.08':isCluster?'0.6':'0.25';
-  const lsZoom=isStar?17:isCluster?12:14;
+  // Extragalaktische Kugelsternhaufen sind winzig (Bogensekunden) → enges FOV
+  const isGlobular=o.type==='globular';
+  const skyFov=isStar||isGlobular?'0.08':isCluster?'0.6':'0.25';
+  const lsZoom=isStar||isGlobular?17:isCluster?12:14;
 
   // ── Aktionsbuttons ─────────────────────────────────────────────────────────
   const cb=document.createElement('button');
@@ -6282,10 +6285,10 @@ async function showCatalogDashboard(){
   // Count by type
   const typeCounts={};
   entries.forEach(e=>{typeCounts[e.type]=(typeCounts[e.type]||0)+1;});
-  const typeOrder=['star','galaxy','nebula','cluster','quasar','planetary_nebula','double','variable','pulsar','blackhole','whitedwarf','supernova_remnant','unknown'];
-  const typeLabels={star:'Sterne',galaxy:'Galaxien',nebula:'Nebel',cluster:'Haufen',quasar:'Quasare',
+  const typeOrder=['star','galaxy','nebula','cluster','globular','quasar','planetary_nebula','double','variable','pulsar','blackhole','whitedwarf','supernova_remnant','unknown'];
+  const typeLabels={star:'Sterne',galaxy:'Galaxien',nebula:'Nebel',cluster:'Haufen',globular:'Kugelhaufen',quasar:'Quasare',
     planetary_nebula:'Plan. Nebel',double:'Doppelsterne',variable:'Veränderliche',pulsar:'Pulsare',blackhole:'Schw. Löcher',whitedwarf:'Weiße Zwerge',supernova_remnant:'SNR',unknown:'Andere'};
-  const typeIcons={star:'⭐',galaxy:'🌀',nebula:'🟣',cluster:'🔵',quasar:'💠',planetary_nebula:'🟢',
+  const typeIcons={star:'⭐',galaxy:'🌀',nebula:'🟣',cluster:'🔵',globular:'✪',quasar:'💠',planetary_nebula:'🟢',
     double:'⭐⭐',variable:'💫',pulsar:'📡',blackhole:'⚫',whitedwarf:'⚪',supernova_remnant:'💥',unknown:'●'};
 
   // Count by catalog

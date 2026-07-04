@@ -1297,7 +1297,7 @@ def download_extragalactic_gcs(conn, prog=None):
                     if is_cand: desc += " · Kandidat"
                     objs.append({"id": f"GC {key} {nm}", "catalog": "ExtGC",
                                  "ra": ra, "dec": dec, "magnitude": mag,
-                                 "type": "cluster", "name": f"GC {key} {nm}",
+                                 "type": "globular", "name": f"GC {key} {nm}",
                                  "description": desc})
                 except: pass
             if prog: prog(f"    {gal}: {len(objs)-n0}")
