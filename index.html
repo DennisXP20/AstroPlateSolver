@@ -1046,7 +1046,26 @@ function loadFile(f){
     document.getElementById('pn-adj').style.display='block';
     drawMinimap();
   };
-  img.src=URL.createObjectURL(f);
+  // TIFF/FITS können Browser nicht nativ im <img> rendern → Server konvertiert
+  // in ein JPEG (Originalauflösung, Perzentil-Stretch für 16-Bit-Daten).
+  // Das Original-File bleibt für das Solven erhalten (volle Bittiefe).
+  const _needsConvert=/\.(tiff?|fits?|fit)$/i.test(f.name);
+  if(_needsConvert){
+    setSt('Konvertiere '+f.name+' für die Anzeige … (kann bei GB-Dateien etwas dauern)');
+    toast('Konvertiere für Anzeige …',true);
+    const fd=new FormData();
+    fd.append('params',new Blob([JSON.stringify({filename:f.name})],{type:'application/json'}));
+    fd.append('file',f,f.name);
+    fetch('/api/img_preview',{method:'POST',body:fd})
+      .then(r=>{if(!r.ok)return r.json().then(j=>{throw new Error(j.error||('HTTP '+r.status))});return r.blob();})
+      .then(b=>{img.src=URL.createObjectURL(b);})
+      .catch(e=>{
+        toast('Anzeige-Konvertierung fehlgeschlagen: '+e.message,false);
+        img.src=URL.createObjectURL(f); // letzter Versuch (falls doch browserlesbar)
+      });
+  }else{
+    img.src=URL.createObjectURL(f);
+  }
   document.getElementById('fn').textContent=f.name;
   document.getElementById('fm').textContent=fmt(f.size)+' · '+(f.type||'?');
   document.getElementById('finfo').style.display='block';

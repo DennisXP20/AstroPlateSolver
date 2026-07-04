@@ -255,6 +255,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         elif path == "/api/photo_z":       self._photo_z(body)
         elif path == "/api/gaia_cone":     self._gaia_cone(body)
         elif path == "/api/bh_masses":     self._bh_masses(body)
+        elif path == "/api/img_preview":   self._img_preview(body)
         else: self.send_response(404); self.end_headers()
 
     def _sdss_cone(self, body):
@@ -1435,6 +1436,82 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
         log(f"[BH] Shen+2011: {len(out)} Quasare mit M_BH/L_bol (Tabelle {used[0]})")
         self._json({"status": "ok", "count": len(out), "table": used[0], "objects": out})
+
+    def _img_preview(self, body):
+        """Konvertiert TIFF/FITS serverseitig in ein anzeigbares JPEG in
+        Originalauflösung — Browser können TIFF/FITS nicht im <img>-Tag
+        rendern, das Bildfeld blieb daher schwarz. 16-Bit-Daten bekommen
+        einen Perzentil-Stretch (0.25–99.8%) für die Anzeige."""
+        import io as _io
+        try:
+            ct = self.headers.get("Content-Type", "")
+            if "multipart/form-data" not in ct:
+                self._err(400, "multipart/form-data erwartet"); return
+            bnd = ct.split("boundary=")[-1].strip()
+            parts = _parse_multipart(body, bnd)
+            img_bytes = parts.get("file")
+            try: payload = json.loads(parts.get("params", b"{}").decode("utf-8"))
+            except Exception: payload = {}
+            fname = str(payload.get("filename", "bild")).lower()
+            if not img_bytes:
+                self._err(400, "Keine Datei"); return
+
+            import numpy as np
+            from PIL import Image
+            Image.MAX_IMAGE_PIXELS = None
+
+            if fname.endswith((".fit", ".fits")):
+                from astropy.io import fits as afits
+                arr = None
+                with afits.open(_io.BytesIO(img_bytes), memmap=False) as hd:
+                    for h in hd:
+                        d = getattr(h, "data", None)
+                        if d is not None and getattr(d, "ndim", 0) >= 2:
+                            arr = np.asarray(d, dtype=np.float32); break
+                if arr is None:
+                    self._err(400, "FITS ohne Bilddaten"); return
+                # 3D-Cubes: (3,H,W) → (H,W,3), sonst erste Ebene
+                if arr.ndim == 3:
+                    if arr.shape[0] == 3: arr = np.moveaxis(arr, 0, -1)
+                    elif arr.shape[-1] != 3: arr = arr[0]
+            else:
+                im = Image.open(_io.BytesIO(img_bytes))
+                im.load()
+                arr = np.asarray(im).astype(np.float32)
+                if arr.ndim == 3 and arr.shape[-1] > 3:  # Alpha-Kanal weg
+                    arr = arr[..., :3]
+
+            # Stretch-Heuristik: liegt der Median sehr weit unten im Wertebereich,
+            # sind es lineare Rohdaten (Stack) → Perzentil-Stretch für die Anzeige.
+            # Bereits gestreckte Exporte (Siril/PixInsight/Photoshop) werden nur
+            # in der Bittiefe skaliert, sonst würde man sie übersteuern.
+            maxv = float(arr.max()) or 1.0
+            med  = float(np.median(arr))
+            if med / maxv < 0.05:
+                lo, hi = np.percentile(arr, (0.25, 99.8))
+            else:
+                lo, hi = float(arr.min()), maxv
+            if hi <= lo: hi = lo + 1.0
+            arr8 = np.clip((arr - lo) / (hi - lo) * 255.0, 0, 255).astype(np.uint8)
+            img = Image.fromarray(arr8, mode="RGB" if arr8.ndim == 3 else "L")
+            # JPEG-Seitenlimit 65500 px; extrem große Bilder moderat verkleinern
+            if max(img.size) > 16000:
+                sc = 16000.0 / max(img.size)
+                img = img.resize((int(img.size[0]*sc), int(img.size[1]*sc)), Image.LANCZOS)
+            buf = _io.BytesIO()
+            img.convert("RGB").save(buf, "JPEG", quality=85)
+            data = buf.getvalue()
+            log(f"[Preview] {fname}: {len(img_bytes)//1048576} MB -> JPEG {len(data)//1048576} MB ({img.size[0]}x{img.size[1]})")
+            self.send_response(200)
+            self.send_header("Content-Type", "image/jpeg")
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("X-Orig-Width", str(img.size[0]))
+            self.send_header("X-Orig-Height", str(img.size[1]))
+            self._cors(); self.end_headers(); self.wfile.write(data)
+        except Exception as e:
+            import traceback
+            log(f"[Preview] Fehler: {traceback.format_exc()[:400]}")
+            self._err(500, f"Vorschau-Konvertierung fehlgeschlagen: {e}")
 
     def _file(self, path, ctype):
         if not path.exists(): self.send_response(404); self.end_headers(); return
