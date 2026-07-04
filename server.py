@@ -997,6 +997,27 @@ class Handler(http.server.BaseHTTPRequestHandler):
                                     "photoz_err":  obj.get("photoz_err"),
                                 })
 
+                        # Duplikate entfernen: Ein Quasar ist für die SDSS-Photometrie
+                        # ein Punktobjekt und steht dort als "star" — dasselbe Objekt
+                        # existiert also im DR16Q-Katalog UND als SDSS-Stern an exakt
+                        # derselben Position. Innerhalb 2.5" gewinnt der Quasar-Eintrag
+                        # (hat Rotverschiebung, SED, UV/IR-Daten).
+                        qso_pos = [(o["ra"], o["dec"]) for o in result.get("objects", [])
+                                   if o.get("type") == "quasar"]
+                        if qso_pos:
+                            tol = 2.5 / 3600.0
+                            kept, dropped = [], 0
+                            for o in sdss_placed:
+                                cosd = max(_math.cos(_math.radians(o["dec"])), 0.017)
+                                if any(abs(o["dec"]-qd) < tol and abs(o["ra"]-qr)*cosd < tol
+                                       for qr, qd in qso_pos):
+                                    dropped += 1
+                                else:
+                                    kept.append(o)
+                            if dropped:
+                                prog(f"[SDSS] {dropped} SDSS-Duplikate an Quasar-Positionen entfernt")
+                            sdss_placed = kept
+
                         result["objects"]    = result.get("objects", []) + sdss_placed
                         result["sdss_count"] = len(sdss_placed)
                         # Footprint-Info: war das Feld überhaupt im SDSS-Footprint?
