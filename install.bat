@@ -52,15 +52,15 @@ exit /b 1
 echo Python gefunden:
 %PY% --version
 echo.
-echo Installiere Pakete (numpy, scipy, astropy, pillow, certifi, python-docx)...
+echo Installiere Pakete (numpy, scipy, astropy, pillow, tifffile, imagecodecs, certifi, python-docx)...
 echo.
 %PY% -m pip install --upgrade pip --quiet
-%PY% -m pip install numpy scipy astropy pillow certifi python-docx --upgrade
+%PY% -m pip install numpy scipy astropy pillow tifffile imagecodecs certifi python-docx --upgrade
 if errorlevel 1 (
     echo.
     echo [FEHLER] Paket-Installation fehlgeschlagen.
     echo Versuche manuell in der Eingabeaufforderung:
-    echo   python -m pip install numpy scipy astropy pillow certifi python-docx
+    echo   python -m pip install numpy scipy astropy pillow tifffile imagecodecs certifi python-docx
     pause
     exit /b 1
 )

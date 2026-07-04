@@ -39,6 +39,49 @@ def _parse_multipart(body: bytes, boundary: str) -> dict:
 BASE = Path(__file__).parent
 PORT = 8743
 
+
+def _read_image_array(img_bytes: bytes, fname: str):
+    """Bild VERLUSTFREI als numpy-Array im nativen Datentyp laden.
+
+    TIFF: zuerst tifffile (kann 16/32-Bit, Float, LZW/ZIP-Kompression und
+    BigTIFF — alles was Siril/PixInsight schreiben; PIL scheitert daran mit
+    'cannot identify image file'), PIL als Fallback. FITS: astropy.
+    Sonst: PIL. Rueckgabe: (H,W)- oder (H,W,3)-Array, Datentyp unveraendert."""
+    import io as _io
+    import numpy as np
+    low = (fname or "").lower()
+    if low.endswith((".fit", ".fits")):
+        from astropy.io import fits as afits
+        with afits.open(_io.BytesIO(img_bytes), memmap=False) as hd:
+            for h in hd:
+                d = getattr(h, "data", None)
+                if d is not None and getattr(d, "ndim", 0) >= 2:
+                    arr = np.asarray(d)
+                    if arr.ndim == 3 and arr.shape[0] in (1, 3):
+                        arr = np.moveaxis(arr, 0, -1)
+                        if arr.shape[-1] == 1:
+                            arr = arr[..., 0]
+                    return arr
+        raise ValueError("FITS ohne Bilddaten")
+    if low.endswith((".tif", ".tiff")):
+        try:
+            import tifffile
+            arr = tifffile.imread(_io.BytesIO(img_bytes))
+            arr = np.asarray(arr)
+            if arr.ndim == 3 and arr.shape[-1] > 3:
+                arr = arr[..., :3]  # Alpha-Kanal verwerfen
+            return arr
+        except ImportError:
+            pass  # tifffile fehlt -> PIL versuchen
+    from PIL import Image
+    Image.MAX_IMAGE_PIXELS = None
+    im = Image.open(_io.BytesIO(img_bytes))
+    im.load()
+    arr = np.asarray(im)
+    if arr.ndim == 3 and arr.shape[-1] > 3:
+        arr = arr[..., :3]
+    return arr
+
 _solver = None
 _catalog_dl = None
 _photometry = None
@@ -1026,22 +1069,16 @@ class Handler(http.server.BaseHTTPRequestHandler):
         try:
             import numpy as np
             from astropy.io import fits as afits
-            from PIL import Image
             import io as _io
 
-            pil_img = Image.open(_io.BytesIO(img_bytes))
-            if pil_img.mode in ("RGB", "RGBA"):
-                arr = np.array(pil_img)
-                if arr.ndim == 3:
-                    if arr.shape[2] == 4:
-                        arr = arr[:,:,:3]
-                    arr = np.moveaxis(arr, 2, 0).astype(np.float32)
-                else:
-                    arr = arr.astype(np.float32)
-            elif pil_img.mode == "I;16":
-                arr = np.array(pil_img, dtype=np.uint16).astype(np.float32)
-            else:
-                arr = np.array(pil_img.convert("L"), dtype=np.float32)
+            # VERLUSTFREI: robuster Leser (tifffile für 16/32-Bit/Float/LZW-TIFF),
+            # nativer Datentyp bleibt erhalten — uint16 bleibt uint16 (FITS
+            # BITPIX 16 mit BZERO via astropy), float32 bleibt float32.
+            # Wichtig für die Weiterverarbeitung in Siril (SPCC/Farbkalibrierung).
+            arr = _read_image_array(img_bytes, payload.get("filename", ""))
+            if arr.ndim == 3:
+                # (H,W,3) → (3,H,W): FITS-Konvention für RGB, wie Siril sie erwartet
+                arr = np.ascontiguousarray(np.moveaxis(arr, 2, 0))
 
             hdu = afits.PrimaryHDU(arr)
             h = hdu.header
@@ -1459,27 +1496,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             import numpy as np
             from PIL import Image
             Image.MAX_IMAGE_PIXELS = None
-
-            if fname.endswith((".fit", ".fits")):
-                from astropy.io import fits as afits
-                arr = None
-                with afits.open(_io.BytesIO(img_bytes), memmap=False) as hd:
-                    for h in hd:
-                        d = getattr(h, "data", None)
-                        if d is not None and getattr(d, "ndim", 0) >= 2:
-                            arr = np.asarray(d, dtype=np.float32); break
-                if arr is None:
-                    self._err(400, "FITS ohne Bilddaten"); return
-                # 3D-Cubes: (3,H,W) → (H,W,3), sonst erste Ebene
-                if arr.ndim == 3:
-                    if arr.shape[0] == 3: arr = np.moveaxis(arr, 0, -1)
-                    elif arr.shape[-1] != 3: arr = arr[0]
-            else:
-                im = Image.open(_io.BytesIO(img_bytes))
-                im.load()
-                arr = np.asarray(im).astype(np.float32)
-                if arr.ndim == 3 and arr.shape[-1] > 3:  # Alpha-Kanal weg
-                    arr = arr[..., :3]
+            arr = _read_image_array(img_bytes, fname).astype(np.float32)
 
             # Stretch-Heuristik: liegt der Median sehr weit unten im Wertebereich,
             # sind es lineare Rohdaten (Stack) → Perzentil-Stretch für die Anzeige.

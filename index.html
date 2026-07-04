@@ -7559,7 +7559,7 @@ async function dlFITS(){
   toast('FITS wird erzeugt … (kann bei großen Bildern dauern)',true);
   try{
     const fd=new FormData();
-    fd.append('params', new Blob([JSON.stringify({result:lastResult})],{type:'application/json'}));
+    fd.append('params', new Blob([JSON.stringify({result:lastResult,filename:file.name})],{type:'application/json'}));
     fd.append('file', file, file.name);
     const resp=await fetch('/api/export_fits',{method:'POST',body:fd});
     if(!resp.ok){toast('Fehler: '+(await resp.text()).slice(0,120),false);return;}

@@ -59,8 +59,8 @@ Katalog-Download funktioniert die Objekterkennung offline.
 1. **Python installieren** (falls nicht vorhanden):
    <https://www.python.org/downloads/> — *„Add Python to PATH"* ankreuzen.
 2. **`install.bat` doppelklicken** — installiert die Python-Pakete
-   (`numpy`, `scipy`, `astropy`, `pillow`, `certifi`, `python-docx`).
-   Manuell: `python -m pip install numpy scipy astropy pillow certifi python-docx`
+   (`numpy`, `scipy`, `astropy`, `pillow`, `tifffile`, `imagecodecs`, `certifi`, `python-docx`).
+   Manuell: `python -m pip install numpy scipy astropy pillow tifffile imagecodecs certifi python-docx`
 3. **ASTAP installieren** (empfohlen) + Sternkatalog (D80 oder H17/H18)
    in den `astap.exe`-Ordner.
 4. **`start.bat` doppelklicken** — Server startet auf
