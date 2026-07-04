@@ -1245,6 +1245,68 @@ def download_blackholes(conn, prog=None):
     return len(objs)
 
 
+# ── Extragalaktische Kugelsternhaufen ─────────────────────────────────────────
+def download_extragalactic_gcs(conn, prog=None):
+    """Kugelsternhaufen NAHER GALAXIEN — die entferntesten Sternhaufen, die ein
+    Amateur einzeln nachweisen kann: M31 (RBC V3.5, hellster: G1 mit V=13.7),
+    M81/M82/NGC3077-Triplett (J-PLUS), M104 Sombrero, NGC 5128 (Cen A), M33.
+    Spalten werden fuzzy erkannt (SELECT *), da jede Quelle anders heisst."""
+    sources = [
+        ("M31 (Andromeda)",   "M31",  "J/A+A/471/127/m31rbc",     "RBC V3.5, Galleti+ 2007"),
+        ("M81/M82-Triplett",  "M81T", "J/MNRAS/516/1320/catalog", "J-PLUS, Chies-Santos+ 2022"),
+        ("M104 (Sombrero)",   "M104", "J/MNRAS/389/1150/n4594gcs","Spitler+ 2008"),
+        ("NGC 5128 (Cen A)",  "CenA", "J/ApJ/705/1533/glcl",      "Chattopadhyay+ 2009"),
+        ("M33 (Dreieck)",     "M33",  "J/AJ/149/157/table1",      "Ma 2015"),
+    ]
+    objs = []
+    for gal, key, tbl, src in sources:
+        try:
+            if prog: prog(f"    VizieR TAP Kugelsternhaufen {gal}...")
+            raw = _tap("https://tapvizier.cds.unistra.fr/TAPVizieR/tap/sync",
+                       f'SELECT TOP 20000 * FROM "{tbl}"', 120)
+            rows = list(csv.DictReader(io.StringIO(raw)))
+            if not rows:
+                if prog: prog(f"    {gal}: leer"); continue
+            fields = list(rows[0].keys())
+            def col(*names):
+                for n in names:
+                    for f in fields:
+                        if (f or "").lower() == n.lower(): return f
+                return None
+            c_ra  = col("RAJ2000", "_RA", "RA_ICRS", "RAdeg")
+            c_de  = col("DEJ2000", "_DE", "DE_ICRS", "DEdeg")
+            c_nm  = col("Name", "[SLS2006]", "SimbadName", "ID", "Seq")
+            c_mag = col("Vmag", "rmag", "T1", "gmag", "Bmag")
+            if not c_ra or not c_de:
+                if prog: prog(f"    {gal}: Koordinatenspalten fehlen ({fields[:8]})")
+                continue
+            n0 = len(objs)
+            is_cand = "Kandidat" in src or "J-PLUS" in src  # Kandidatenlisten kennzeichnen
+            for i, row in enumerate(rows):
+                try:
+                    ra = float(str(row[c_ra]).strip()); dec = float(str(row[c_de]).strip())
+                    nm = str(row.get(c_nm, "")).strip() if c_nm else ""
+                    if not nm or nm == "---": nm = f"#{i+1}"
+                    mag = None
+                    if c_mag:
+                        try: mag = float(str(row.get(c_mag, "")).strip())
+                        except (ValueError, TypeError): mag = None
+                    if mag is not None and not (5 < mag < 26): mag = None
+                    desc = f"Kugelsternhaufen von {gal} · {src}"
+                    if mag is not None: desc += f" · {c_mag}={mag:.1f}"
+                    if is_cand: desc += " · Kandidat"
+                    objs.append({"id": f"GC {key} {nm}", "catalog": "ExtGC",
+                                 "ra": ra, "dec": dec, "magnitude": mag,
+                                 "type": "cluster", "name": f"GC {key} {nm}",
+                                 "description": desc})
+                except: pass
+            if prog: prog(f"    {gal}: {len(objs)-n0}")
+        except Exception as e:
+            if prog: prog(f"    {gal} fehlgeschlagen: {e}")
+    if objs: _insert(conn, objs)
+    return len(objs)
+
+
 # ── Weisse Zwerge (Gaia EDR3) ─────────────────────────────────────────────────
 def download_whitedwarfs(conn, prog=None, mag_limit=20.5):
     """Gaia-EDR3-Weisse-Zwerge (Gentile Fusillo et al. 2021, J/MNRAS/508/3877):
@@ -1438,6 +1500,9 @@ def download_all(conn, prog=None):
     p(">>> Weisse Zwerge (Gaia EDR3)...")
     try: n=_retry(lambda: download_whitedwarfs(conn,p),n=2,delay=4,prog=p); totals["GaiaWD"]=n; p(f"    OK: {n}")
     except Exception as e: p(f"    FEHLER: {e}"); totals["GaiaWD"]=0
+    p(">>> Extragalaktische Kugelsternhaufen...")
+    try: n=_retry(lambda: download_extragalactic_gcs(conn,p),n=2,delay=4,prog=p); totals["ExtGC"]=n; p(f"    OK: {n}")
+    except Exception as e: p(f"    FEHLER: {e}"); totals["ExtGC"]=0
     ts=time.strftime("%Y-%m-%d %H:%M:%S")
     for name,cnt in totals.items(): conn.execute("INSERT OR REPLACE INTO catalog_meta VALUES (?,?,?)",(name,ts,cnt))
     conn.commit(); total=sum(totals.values()); p(f">>> Fertig: {total:,} Objekte gesamt")
