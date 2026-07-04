@@ -700,6 +700,71 @@ def _retry(fn, prog, retries=3, delay=3):
     raise last_err
 
 
+# Bekannte nahe Galaxiengruppen: (Gruppenname, Hauptgalaxie, Mitglieder).
+# Mitglied = (DB-ID, optionaler Eigenname). IDs gegen die Katalog-DB verifiziert
+# (NGC/IC sind nullgepolstert: "NGC 0147"). Quellen: Karachentsev+ 2004
+# (Local Volume), Standard-Gruppenzugehoerigkeiten.
+_GALAXY_GROUPS = [
+    ("M81-Gruppe", "M81", [
+        ("M82", None), ("NGC 3077", None), ("NGC 2976", None),
+        ("IC 2574", "Coddingtons Nebel"), ("NGC 2403", None),
+        ("PGC 23324", "Holmberg II"), ("PGC 27605", "Holmberg I"),
+        ("PGC 28757", "Holmberg IX"),
+    ]),
+    ("M51-Gruppe (CVn II)", "M51", [
+        ("NGC 5195", "Begleiter von M51"), ("M63", None), ("NGC 5023", None),
+    ]),
+    ("M101-Gruppe", "M101", [
+        ("NGC 5474", None), ("NGC 5477", None), ("NGC 5585", None),
+        ("PGC 49448", "Holmberg IV"),
+    ]),
+    ("M31-System (Lokale Gruppe)", "M31", [
+        ("M32", None), ("M110", None), ("NGC 0147", None), ("NGC 0185", None),
+        ("IC 0010", None), ("M33", None),
+    ]),
+    ("Leo-Triplett", "M66", [
+        ("M65", None), ("NGC 3628", "Hamburger-Galaxie"),
+    ]),
+    ("Leo-I-Gruppe", "M96", [
+        ("M95", None), ("M105", None), ("NGC 3384", None),
+    ]),
+    ("Centaurus-A/M83-Gruppe", "NGC 5128", [
+        ("M83", None), ("NGC 5253", None),
+    ]),
+]
+
+
+def apply_galaxy_groups(db_path):
+    """Markiert bekannte Gruppenzugehoerigkeiten in den Objektbeschreibungen:
+    Hauptgalaxie -> 'Hauptgalaxie der X-Gruppe', Mitglieder -> 'Mitglied der
+    X-Gruppe' (+ Eigenname wie 'Holmberg IX'). Idempotent — bereits markierte
+    Eintraege werden uebersprungen."""
+    import sqlite3
+    conn = sqlite3.connect(str(db_path))
+    n = 0
+    try:
+        for grp, main_id, members in _GALAXY_GROUPS:
+            for oid, alias, tag in ([(main_id, None, f"Hauptgalaxie · {grp}")] +
+                                    [(m, a, f"Mitglied · {grp}") for m, a in members]):
+                row = conn.execute("SELECT description FROM objects WHERE id=?", (oid,)).fetchone()
+                if row is None:
+                    continue
+                desc = row[0] or ""
+                if grp in desc:
+                    continue  # schon markiert
+                extra = (f"{alias} · " if alias and alias not in desc else "") + tag
+                new_desc = (desc + " · " + extra) if desc else extra
+                conn.execute("UPDATE objects SET description=? WHERE id=?", (new_desc, oid))
+                if alias:
+                    conn.execute("UPDATE objects SET name=? WHERE id=? AND (name IS NULL OR name=id)",
+                                 (alias, oid))
+                n += 1
+        conn.commit()
+        return n
+    finally:
+        conn.close()
+
+
 def refresh_messier(db_path):
     """Aktualisiert die eingebetteten Messier-Daten in einer bestehenden catalog.db
     (fehlende Objekte nachtragen, Beschreibungen erneuern) — ohne Komplett-Neuaufbau."""

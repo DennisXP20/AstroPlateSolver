@@ -7871,11 +7871,12 @@ async function showCMD(){
     }catch(e){return toast('Gaia-Abfrage fehlgeschlagen: '+e.message,false);}
   }
 
-  const objs=gaiaStars.filter(s=>s.parallax_mas&&s.parallax_mas>0.5&&s.M_abs!=null);
-  if(objs.length<3)return toast('Zu wenige Gaia-Sterne mit Parallaxe > 0.5 mas ('+objs.length+')',false);
+  // Alle Sterne mit brauchbarer Parallaxe (>0.1 mas = bis ~10 kpc) — nicht nur die nahen
+  const objs=gaiaStars.filter(s=>s.M_abs!=null);
+  if(objs.length<3)return toast('Zu wenige Gaia-Sterne mit Parallaxe ('+objs.length+')',false);
   let ov=document.getElementById('cmd-panel');if(ov)ov.remove();
   ov=document.createElement('div');ov.id='cmd-panel';
-  ov.style.cssText='position:fixed;top:40px;left:50%;transform:translateX(-50%);width:680px;max-width:calc(100vw - 40px);max-height:calc(100vh - 80px);overflow:auto;background:var(--bg2);border:1px solid var(--b2);border-radius:12px;padding:20px 20px 16px;z-index:99999;box-shadow:0 8px 32px rgba(0,0,0,.8)';
+  ov.style.cssText='position:fixed;top:24px;left:50%;transform:translateX(-50%);width:1200px;max-width:calc(100vw - 32px);max-height:calc(100vh - 48px);overflow:auto;background:var(--bg2);border:1px solid var(--b2);border-radius:12px;padding:20px 20px 16px;z-index:99999;box-shadow:0 8px 32px rgba(0,0,0,.8)';
   // BP-RP Farbindex und absolute Magnitude berechnen
   // Gaia DR3: wir brauchen BP, RP und Parallaxe
   // Wenn kein BP/RP: nutze Teff als Ersatz für Farbindex
@@ -7945,7 +7946,7 @@ async function showCMD(){
     return'Hauptreihe';
   }
 
-  const W=660,H=480,pad={t:60,r:30,b:50,l:60};
+  const W=1160,H=680,pad={t:60,r:30,b:50,l:60};
   const pw=W-pad.l-pad.r, ph=H-pad.t-pad.b;
   const ciMin=Math.min(-0.5,...stars.map(s=>s.ci))-0.2;
   const ciMax=Math.max(3.0,...stars.map(s=>s.ci))+0.2;
@@ -7955,6 +7956,7 @@ async function showCMD(){
   const sy=M=>(M-mMin)/(mMax-mMin)*ph+pad.t;
 
   let svg=`<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;background:#0a0a14;border-radius:8px;display:block">`;
+  svg+=`<style>circle[data-idx]:hover{stroke:#fff;stroke-width:1.5;fill:rgba(255,255,255,.15)}</style>`;
   // Grid
   for(let m=Math.ceil(mMin);m<=mMax;m+=2){
     const y=sy(m);
@@ -7979,13 +7981,15 @@ async function showCMD(){
   // Giant branch region
   svg+=`<text x="${sx(1.8)}" y="${sy(-2)}" fill="rgba(255,140,80,0.4)" font-size="9" text-anchor="middle">Rote Riesen</text>`;
 
-  // Plot stars
+  // Plot stars — mit unsichtbarem, größerem Klick-Ziel pro Stern (r=9), damit
+  // auch dicht gedrängte Punkte gut anklickbar sind
   stars.forEach((s,i)=>{
     const sp=specType(s.teff,s.ci);
     const lc=lumClass(s.M,s.ci);
     const x=sx(s.ci),y=sy(s.M);
-    const r=lc==='Überriese'?5:lc==='Riese'?4:lc==='Weißer Zwerg'?2.5:3;
-    svg+=`<circle cx="${x}" cy="${y}" r="${r}" fill="${sp.col}" opacity="0.85" stroke="${sp.col}" stroke-width="0.5" style="cursor:pointer" data-idx="${i}">`;
+    const r=lc==='Überriese'?6.5:lc==='Riese'?5.5:lc==='Weißer Zwerg'?3.5:4.5;
+    svg+=`<circle cx="${x}" cy="${y}" r="${r}" fill="${sp.col}" opacity="0.85" stroke="${sp.col}" stroke-width="0.5" pointer-events="none"/>`;
+    svg+=`<circle cx="${x}" cy="${y}" r="9" fill="transparent" style="cursor:pointer" data-idx="${i}">`;
     svg+=`<title>${s.id}
 Spektraltyp: ${sp.sp} · ${lc}
 M_abs=${s.M.toFixed(1)} · BP-RP≈${s.ci.toFixed(2)}

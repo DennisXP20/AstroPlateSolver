@@ -1625,6 +1625,12 @@ if __name__ == "__main__":
             print(f"  Messier: {n} Objekte aktualisiert")
         except Exception as e:
             print(f"  Messier-Update uebersprungen: {e}")
+        # Galaxiengruppen-Zugehoerigkeit markieren (M81-Gruppe, Leo-Triplett, ...)
+        try:
+            n = s.apply_galaxy_groups(BASE/"catalog.db")
+            if n: print(f"  Galaxiengruppen: {n} Objekte markiert")
+        except Exception as e:
+            print(f"  Gruppen-Markierung uebersprungen: {e}")
 
     print("\n" + "="*50)
     print("  Astro Plate Solver v1.0-rc1")
