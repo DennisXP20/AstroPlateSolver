@@ -1209,7 +1209,8 @@ class TanWCS:
 # ══════════════════════════════════════════════════════════════════════════════
 
 def solve_field(img_path, conn, mag_limit=19.0, active_catalogs=None,
-                manual_wcs=None, astap_exe=None, progress_cb=None) -> Dict:
+                manual_wcs=None, astap_exe=None, progress_cb=None,
+                ra_hint=None, dec_hint=None) -> Dict:
     def prog(m):
         if progress_cb: progress_cb(m)
         else: print(m)
@@ -1223,10 +1224,16 @@ def solve_field(img_path, conn, mag_limit=19.0, active_catalogs=None,
         wcs_info = manual_wcs
         prog("Manuelle WCS-Koordinaten verwendet")
 
-    # ASTAP plate solving (wenn kein WCS und ASTAP verfuegbar)
+    # ASTAP plate solving (wenn kein WCS und ASTAP verfuegbar).
+    # Mit Ziel-Hint (z.B. "M8") sucht ASTAP nur im 30-Grad-Umkreis statt am
+    # ganzen Himmel — rettet dichte Milchstrassenfelder, wo Blind-Solve scheitert.
     if not wcs_info and astap_exe:
-        prog(f"ASTAP plate solving gestartet ({astap_exe})...")
-        wcs_info = astap_solve(img_path, astap_exe, progress_cb=prog)
+        if ra_hint is not None and dec_hint is not None:
+            prog(f"ASTAP plate solving mit Positions-Hint RA={ra_hint:.3f} Dec={dec_hint:.3f} ...")
+        else:
+            prog(f"ASTAP plate solving gestartet ({astap_exe})...")
+        wcs_info = astap_solve(img_path, astap_exe,
+                               ra_hint=ra_hint, dec_hint=dec_hint, progress_cb=prog)
 
     if not wcs_info:
         return {

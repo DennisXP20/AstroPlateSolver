@@ -843,9 +843,44 @@ class Handler(http.server.BaseHTTPRequestHandler):
         astap_path = payload.get("astap_path", None)
         use_sdss   = payload.get("use_sdss", False)
         sdss_mag   = float(payload.get("sdss_mag_limit", mag_limit))
+        target_hint = (payload.get("target_hint") or "").strip()
 
         s = get_solver()
         astap_exe = astap_path or s.find_astap()
+
+        # Ziel-Hint: Objektname (z.B. "M8", "NGC 7000") in der lokalen Katalog-DB
+        # auflösen → ASTAP sucht nur im 30°-Umkreis. Rettet dichte Milchstraßen-
+        # felder, bei denen Blind-Solve scheitert. Blind bleibt der Standard.
+        ra_hint = dec_hint = None
+        if target_hint:
+            try:
+                conn_h = s.init_db()
+                q = target_hint.upper().replace("  ", " ")
+                # Varianten: "M8", "M 8"→"M8", "NGC7000"→"NGC 7000"
+                import re as _re
+                variants = {q, q.replace(" ", "")}
+                m = _re.match(r"^([A-Z]+)\s*(\d+.*)$", q)
+                if m: variants.add(f"{m.group(1)} {m.group(2)}")
+                row = None
+                for v in variants:
+                    row = conn_h.execute(
+                        "SELECT ra, dec, id FROM objects WHERE UPPER(id)=? LIMIT 1", (v,)
+                    ).fetchone()
+                    if row: break
+                if not row:
+                    # Eigennamen versuchen ("Lagunennebel", "Andromeda-Galaxie")
+                    row = conn_h.execute(
+                        "SELECT ra, dec, id FROM objects WHERE UPPER(name) LIKE ? LIMIT 1",
+                        (f"%{q}%",)
+                    ).fetchone()
+                conn_h.close()
+                if row:
+                    ra_hint, dec_hint = float(row[0]), float(row[1])
+                    log(f"[Hint] Ziel '{target_hint}' -> {row[2]} (RA={ra_hint:.4f} Dec={dec_hint:.4f})")
+                else:
+                    log(f"[Hint] Ziel '{target_hint}' nicht im Katalog gefunden — Blind-Solve")
+            except Exception as e:
+                log(f"[Hint] Aufloesung fehlgeschlagen: {e}")
 
         _solving = True; slogs = []
         try:
@@ -863,7 +898,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                                    active_catalogs=active,
                                    manual_wcs=manual_wcs,
                                    astap_exe=astap_exe,
-                                   progress_cb=prog)
+                                   progress_cb=prog,
+                                   ra_hint=ra_hint, dec_hint=dec_hint)
             conn.close()
 
             # ── SDSS DR17 Integration ──────────────────────────────────────

@@ -391,6 +391,11 @@ body{background:var(--bg);color:var(--tx);font-family:system-ui,-apple-system,sa
   </div>
 
   <div class="pn" style="display:flex;flex-direction:column;gap:7px">
+    <div class="fl">
+      <label>Ziel-Hinweis <span style="color:var(--fa)">(optional — hilft in dichten Milchstraßenfeldern)</span></label>
+      <input type="text" id="target-hint" placeholder="z.B. M8, NGC 7000, IC 1318"
+        title="Nächstes bekanntes Objekt im Bild. ASTAP sucht dann nur im 30°-Umkreis statt am ganzen Himmel — rettet Felder in der Milchstraße (M8, Herznebel …), wo Blind-Solve scheitert. Leer lassen = normaler Blind-Solve.">
+    </div>
     <button class="run run-auto" id="runb-auto" disabled onclick="solve(true)">Auto-Erkennung (ASTAP)</button>
     <button class="run" id="runb" disabled onclick="solve(false)">Mit WCS / manuell lösen</button>
   </div>
@@ -6620,7 +6625,8 @@ async function solve(useAstap){
       filename:solveFilename, mag_limit:mag, active_catalogs:active,
       manual_wcs:manualWcs, astap_path:astapPath,
       use_sdss:document.getElementById('sdss-toggle').checked,
-      sdss_mag_limit:parseFloat(document.getElementById('sdss-mag-slider').value)||20
+      sdss_mag_limit:parseFloat(document.getElementById('sdss-mag-slider').value)||20,
+      target_hint:(document.getElementById('target-hint')?.value||'').trim()
     })],{type:'application/json'}));
     fd.append('file', solveBlob, solveFilename);
     const resp=await fetch('/api/solve',{method:'POST',body:fd});
