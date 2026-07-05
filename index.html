@@ -7990,7 +7990,12 @@ async function showCMD(){
   const many=stars.length>2500;
   stars.forEach((s,i)=>{
     const sp=specType(s.teff,s.ci);
-    const lc=lumClass(s.M,s.ci);
+    // "Weißer Zwerg" nur bei verlässlicher Parallaxe (plx/σ≥5): Quellen AUF
+    // hellen Galaxien haben Schein-Parallaxen + verfälschte Farben und würden
+    // sonst massenhaft als WDs fehlklassifiziert (echte Katalog-WDs meiden
+    // Galaxienkerne dank Qualitätsschnitten komplett)
+    let lc=lumClass(s.M,s.ci);
+    if(lc==='Weißer Zwerg'&&s.q<5)lc='unsicher (Parallaxe zu schlecht)';
     const x=sx(s.ci),y=sy(s.M);
     const r=(lc==='Überriese'?6.5:lc==='Riese'?5.5:lc==='Weißer Zwerg'?3.5:4.5)*(many?0.65:1);
     const op=s.q>=5?0.9:s.q>=3?0.55:0.3;
@@ -8024,7 +8029,7 @@ ${s.teff?'Teff='+Math.round(s.teff)+'K · ':''}Dist=${Math.round(s.dist)} pc${qT
 
   // Statistics
   const counts={};stars.forEach(s=>{const sp=specType(s.teff,s.ci).sp;counts[sp]=(counts[sp]||0)+1;});
-  const lcCounts={};stars.forEach(s=>{const lc=lumClass(s.M,s.ci);lcCounts[lc]=(lcCounts[lc]||0)+1;});
+  const lcCounts={};stars.forEach(s=>{let lc=lumClass(s.M,s.ci);if(lc==='Weißer Zwerg'&&s.q<5)lc='unsicher (Parallaxe zu schlecht)';lcCounts[lc]=(lcCounts[lc]||0)+1;});
 
   const spColMap={'O':'#9bb0ff','O/B':'#9bb0ff','B':'#aabfff','A':'#cad7ff','F':'#f8f7ff','G':'#fff4ea','K':'#ffd2a1','M':'#ffcc6f'};
   const spStats=Object.entries(counts).sort((a,b)=>b[1]-a[1]).map(([k,v])=>`<span style="color:${spColMap[k]||'#aaa'}">${k}</span>: ${v}`).join(' · ');
