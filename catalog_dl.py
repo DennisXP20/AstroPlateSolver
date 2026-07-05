@@ -1316,12 +1316,22 @@ def download_whitedwarfs(conn, prog=None, mag_limit=20.5):
     muessen gequotet werden — ungequotetes Gmag liefert HTTP 400."""
     objs = []
     try:
-        if prog: prog(f"    VizieR TAP Gaia-Weisse-Zwerge (G<={mag_limit})...")
-        adql = (f'SELECT TOP 200000 "EDR3Name", "RA_ICRS", "DE_ICRS", "Gmag", '
-                f'"Pwd", "TeffH", "MassH", "rgeo" FROM "J/MNRAS/508/3877/maincat" '
-                f'WHERE "Pwd" >= 0.75 AND "Gmag" <= {float(mag_limit):.1f}')
-        raw = _tap("https://tapvizier.cds.unistra.fr/TAPVizieR/tap/sync", adql, 300)
-        for row in csv.DictReader(io.StringIO(raw)):
+        if prog: prog(f"    VizieR TAP Gaia-Weisse-Zwerge (G<={mag_limit}, in Dec-Streifen)...")
+        # In 15-Grad-Deklinationsstreifen laden: ein einzelnes TOP-Limit wuerde
+        # sonst still abschneiden (der Katalog hat >200k hochkonfidente WDs)
+        # und dabei ganze Himmelsregionen auslassen.
+        raws = []
+        for d0 in range(-90, 90, 15):
+            adql = (f'SELECT TOP 150000 "EDR3Name", "RA_ICRS", "DE_ICRS", "Gmag", '
+                    f'"Pwd", "TeffH", "MassH", "rgeo" FROM "J/MNRAS/508/3877/maincat" '
+                    f'WHERE "Pwd" >= 0.75 AND "Gmag" <= {float(mag_limit):.1f} '
+                    f'AND "DE_ICRS" >= {d0} AND "DE_ICRS" < {d0 + 15}')
+            try:
+                raws.append(_tap("https://tapvizier.cds.unistra.fr/TAPVizieR/tap/sync", adql, 300))
+            except Exception as e:
+                if prog: prog(f"    Dec {d0}..{d0+15}: {str(e)[:80]}")
+        rows_iter = (row for raw in raws for row in csv.DictReader(io.StringIO(raw)))
+        for row in rows_iter:
             try:
                 nm = str(row.get("EDR3Name", "")).strip()
                 if not nm: continue
