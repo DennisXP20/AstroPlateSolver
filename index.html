@@ -7856,17 +7856,17 @@ async function showCMD(){
 
   // Gaia-Abfrage pro Solve cachen — beim erneuten Öffnen des HRD nicht neu laden
   let gaiaStars;
-  if(lastResult._gaiaHRD){
-    gaiaStars=lastResult._gaiaHRD;
+  if(lastResult._gaiaHRD2){
+    gaiaStars=lastResult._gaiaHRD2;
   }else{
-    toast('Lade Gaia DR3 Sterne mit BP/RP + Parallaxe …',true);
+    toast('Lade Gaia DR3 Sterne mit BP/RP + Parallaxe (G<20) …',true);
     try{
       const resp=await fetch('/api/gaia_cone',{method:'POST',headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({ra:ra_c, dec:dec_c, radius:Math.min(radius,2.0), mag_limit:18})});
+        body:JSON.stringify({ra:ra_c, dec:dec_c, radius:Math.min(radius,2.0), mag_limit:20})});
       const d=await resp.json();
       if(d.error)return toast('Gaia-Fehler: '+d.error,false);
       gaiaStars=d.stars||[];
-      lastResult._gaiaHRD=gaiaStars;
+      lastResult._gaiaHRD2=gaiaStars;
       toast(`${gaiaStars.length} Gaia-Sterne geladen`,true);
     }catch(e){return toast('Gaia-Abfrage fehlgeschlagen: '+e.message,false);}
   }
@@ -7884,7 +7884,9 @@ async function showCMD(){
   for(const o of objs){
     if(o.bp_rp==null||o.M_abs==null)continue;
     const dist_pc=o.dist_pc||1000.0/o.parallax_mas;
-    stars.push({id:o.id,M:o.M_abs,ci:o.bp_rp,teff:o.teff_k||null,dist:dist_pc,type:'star',ra:o.ra,dec:o.dec});
+    // Parallaxen-Qualität: plx/σ ≥ 5 = verlässlich, 3–5 = mäßig, <3 = unsicher
+    const q=o.parallax_err?o.parallax_mas/o.parallax_err:99;
+    stars.push({id:o.id,M:o.M_abs,ci:o.bp_rp,teff:o.teff_k||null,dist:dist_pc,type:'star',ra:o.ra,dec:o.dec,q});
   }
   if(stars.length<3){toast('Zu wenige Sterne mit Farb/Temperatur-Info',false);return;}
 
@@ -7981,26 +7983,31 @@ async function showCMD(){
   // Giant branch region
   svg+=`<text x="${sx(1.8)}" y="${sy(-2)}" fill="rgba(255,140,80,0.4)" font-size="9" text-anchor="middle">Rote Riesen</text>`;
 
-  // Plot stars — mit unsichtbarem, größerem Klick-Ziel pro Stern (r=9), damit
-  // auch dicht gedrängte Punkte gut anklickbar sind
+  // Plot stars — mit unsichtbarem, größerem Klick-Ziel pro Stern, damit auch
+  // dicht gedrängte Punkte gut anklickbar sind. Transparenz kodiert die
+  // Parallaxen-Qualität (blass = unsichere Entfernung → Position im HRD vage).
+  // Bei sehr vielen Sternen kleinere Punkte/Klickziele (Performance + Dichte).
+  const many=stars.length>2500;
   stars.forEach((s,i)=>{
     const sp=specType(s.teff,s.ci);
     const lc=lumClass(s.M,s.ci);
     const x=sx(s.ci),y=sy(s.M);
-    const r=lc==='Überriese'?6.5:lc==='Riese'?5.5:lc==='Weißer Zwerg'?3.5:4.5;
-    svg+=`<circle cx="${x}" cy="${y}" r="${r}" fill="${sp.col}" opacity="0.85" stroke="${sp.col}" stroke-width="0.5" pointer-events="none"/>`;
-    svg+=`<circle cx="${x}" cy="${y}" r="9" fill="transparent" style="cursor:pointer" data-idx="${i}">`;
+    const r=(lc==='Überriese'?6.5:lc==='Riese'?5.5:lc==='Weißer Zwerg'?3.5:4.5)*(many?0.65:1);
+    const op=s.q>=5?0.9:s.q>=3?0.55:0.3;
+    const qTxt=s.q>=5?'':s.q>=3?'\n⚠ Parallaxe mäßig (Entfernung unsicher)':'\n⚠ Parallaxe unsicher — Position im HRD vage';
+    svg+=`<circle cx="${x}" cy="${y}" r="${r}" fill="${sp.col}" opacity="${op}" stroke="${sp.col}" stroke-width="0.5" pointer-events="none"/>`;
+    svg+=`<circle cx="${x}" cy="${y}" r="${many?6:9}" fill="transparent" style="cursor:pointer" data-idx="${i}">`;
     svg+=`<title>${s.id}
 Spektraltyp: ${sp.sp} · ${lc}
 M_abs=${s.M.toFixed(1)} · BP-RP≈${s.ci.toFixed(2)}
-${s.teff?'Teff='+Math.round(s.teff)+'K · ':''}Dist=${Math.round(s.dist)} pc
+${s.teff?'Teff='+Math.round(s.teff)+'K · ':''}Dist=${Math.round(s.dist)} pc${qTxt}
 🖱 Klick → im Bild anzeigen</title></circle>`;
   });
 
   // Axes labels
   svg+=`<text x="${W/2}" y="${H-5}" fill="#aaa" font-size="12" text-anchor="middle">Farbindex (BP−RP)</text>`;
   svg+=`<text x="14" y="${H/2}" fill="#aaa" font-size="12" text-anchor="middle" transform="rotate(-90,14,${H/2})">Absolute Helligkeit M</text>`;
-  svg+=`<text x="${W/2}" y="16" fill="#888" font-size="10" text-anchor="middle">${stars.length} Sterne · Gaia DR3 (BP/RP + Parallaxe, Online-Abfrage)</text>`;
+  svg+=`<text x="${W/2}" y="16" fill="#888" font-size="10" text-anchor="middle">${stars.length} von ${gaiaStars.length} Gaia-Sternen (G&lt;20) — nur Sterne mit Parallaxe haben eine Entfernung und damit einen Platz im HRD · blass = Parallaxe unsicher</text>`;
 
   // Spektraltyp-Leiste — an die ECHTE BP−RP-Achse gekoppelt (nicht dekorativ
   // gleichverteilt), damit ein Stern optisch unter seinem eigenen Typ liegt

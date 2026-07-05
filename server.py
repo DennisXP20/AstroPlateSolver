@@ -1359,7 +1359,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
             # VizieR TAP: Gaia DR3 mit Photometrie, Parallaxe, Teff
             # Gmag + BPmag + RPmag für echten Farbindex
             r_use = min(float(radius), 1.0)
-            mag_use = min(float(mag_limit), 17)
+            # G<20 statt 17: sonst fehlen alle Weissen Zwerge (G 17-20.5) und
+            # die schwachen Roten Zwerge — Parallaxen sind bis G~20 brauchbar
+            mag_use = min(float(mag_limit), 20)
             adql = (
                 'SELECT TOP 20000 Source, RA_ICRS, DE_ICRS, Gmag, BPmag, RPmag, '
                 'Plx, e_Plx, Teff, RV '
@@ -1376,7 +1378,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             import urllib.request, urllib.parse
             tap_url = "https://gea.esac.esa.int/tap-server/tap/sync"
             gaia_adql = (
-                'SELECT TOP 20000 source_id, ra, dec, phot_g_mean_mag, '
+                'SELECT TOP 50000 source_id, ra, dec, phot_g_mean_mag, '
                 'phot_bp_mean_mag, phot_rp_mean_mag, parallax, parallax_error, '
                 'teff_gspphot, radial_velocity '
                 'FROM gaiadr3.gaia_source '
